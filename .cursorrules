@@ -1,0 +1,44 @@
+# LAN Monitor AI Instructions
+
+You are an AI assistant helping with the LAN Monitor project. You MUST strictly adhere to the following architectural and coding standards.
+
+## 1. Project Architecture (Strict Separation of Concerns)
+
+The project is organized into a clean 4-tier architecture. You MUST NOT violate the boundaries between these layers.
+
+- **`core/`**: Business and network logic only. 
+    - Handles ARP scanning, `libcrafter` integration, device discovery, and data modeling.
+    - MUST NOT include any Qt GUI headers (except for `QObject`, `QTimer`, `QThread`, `QString`, etc.).
+    - Communicates with the GUI via Signals and Slots.
+- **`gui/`**: Presentation layer only.
+    - Handles `QMainWindow`, `QTableWidget`, and all visual components.
+    - **RULE**: NO network scanning or raw socket code allowed here. It must only display data provided by the `core` layer.
+- **`utils/`**: Shared static utilities, logging, and helper functions.
+- **`data/`**: Reserved for external data sources, configuration files, and persistent logs (e.g., Maltrail logs).
+
+## 2. Technical Stack
+
+- **Standard**: C++20 (`std::` features are preferred).
+- **Framework**: Qt 6 (Widgets-based).
+- **Network Library**: `libcrafter` (Use exclusively within `core/`).
+- **Build System**: Modern CMake with Ninja.
+
+## 3. Implementation Rules
+
+- **Threading**: All non-trivial network operations (scanning, sniffing) MUST run in a background `QThread` to keep the GUI responsive.
+- **Permissions**: Remember that network operations require raw socket access. Always assume the binary should be run with `sudo` or appropriate capabilities.
+- **UI Design**: Use the established dark-themed QSS for any new components to maintain a premium visual aesthetic.
+- **Encapsulation**: Data objects like `core::Device` should be passed via signals instead of raw pointers where possible to avoid thread-safety issues.
+
+## 4. Directory Structure
+
+```text
+~/lan-monitor/
+├── core/         # NetworkManager, Device model
+├── gui/          # MainWindow, specialized widgets
+├── utils/        # Logger, helpers
+├── data/         # External feeds and configs
+├── build/        # Compilation artifacts
+├── main.cpp      # Pure entry point
+└── CMakeLists.txt # Project configuration
+```

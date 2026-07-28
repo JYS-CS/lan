@@ -1,0 +1,31 @@
+#pragma once
+
+#include <QDialog>
+#include <QLineEdit>
+#include <QFormLayout>
+#include <QDialogButtonBox>
+
+namespace gui {
+
+class StaticLeaseDialog : public QDialog {
+    Q_OBJECT
+
+public:
+    explicit StaticLeaseDialog(const QString &mac = "", const QString &ip = "", const QString &hostname = "", QWidget *parent = nullptr);
+
+    QString mac() const { return m_macEdit->text(); }
+    QString ip() const { return m_ipEdit->text(); }
+    QString hostname() const { return m_hostEdit->text(); }
+
+    void setMac(const QString &mac) { m_macEdit->setText(mac); }
+    void setIp(const QString &ip) { m_ipEdit->setText(ip); }
+
+private:
+    void applyTheme();
+    
+    QLineEdit *m_macEdit;
+    QLineEdit *m_ipEdit;
+    QLineEdit *m_hostEdit;
+};
+
+} // namespace gui

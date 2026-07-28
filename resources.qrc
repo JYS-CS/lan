@@ -1,0 +1,22 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/router.svg</file>
+        <file>resources/tools.svg</file>
+        <file>resources/calculator.svg</file>
+        <file>resources/monitor.svg</file>
+        <file>resources/kick.svg</file>
+        <file>resources/block.svg</file>
+        <file>resources/ban.svg</file>
+        <file>resources/refresh.svg</file>
+        <file>resources/static.svg</file>
+        <file>resources/forensics.svg</file>
+        <file>resources/subnet.svg</file>
+        <file>resources/merger.svg</file>
+        <file>resources/reference.svg</file>
+        <file>resources/search.svg</file>
+        <file>resources/traffic.svg</file>
+        <file>resources/plus_circle.svg</file>
+        <file>resources/list.svg</file>
+        <file>resources/settings.svg</file>
+    </qresource>
+</RCC>

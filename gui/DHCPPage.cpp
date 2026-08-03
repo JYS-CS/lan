@@ -1,5 +1,6 @@
 #include "DHCPPage.h"
 #include "StaticLeaseDialog.h"
+#include "StartupModePage.h"
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QNetworkInterface>
@@ -43,6 +44,25 @@ DHCPPage::DHCPPage(core::NetworkManager *networkManager, QWidget *parent)
 // Called by MainWindow when the startup dialog result is DHCPServer
 void DHCPPage::setStartupMode(bool intercept) {
     m_interceptCheck->setChecked(intercept);
+}
+
+void DHCPPage::applyWizardSettingsAndStart(const gui::DhcpWizardSettings &settings) {
+    m_ifaceEdit->setText(settings.interface);
+    m_myIpEdit->setText(settings.hostIp);
+    m_gatewayEdit->setText(settings.gatewayIp);
+    m_subnetEdit->setText(settings.subnetMask);
+    m_rangeStartEdit->setText(settings.rangeStart);
+    m_rangeEndEdit->setText(settings.rangeEnd);
+
+    QString dns = settings.dns1;
+    if (!settings.dns2.isEmpty()) dns += (dns.isEmpty() ? "" : ", ") + settings.dns2;
+    m_dnsEdit->setText(dns);
+
+    m_leaseEdit->setText(QString::number(settings.leaseTimeSeconds));
+    m_authCheck->setChecked(settings.authoritative);
+    m_interceptCheck->setChecked(settings.intercept);
+
+    if (!m_serverActive) startDhcpWithCurrentConfig();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -26,7 +26,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1200, 800); // Fallback size
     setWindowState(Qt::WindowMaximized);
     
-    // Sync theme beautifully with SplashScreen
     this->setStyleSheet("QMainWindow { background-color: #0d1117; } QStackedWidget { background-color: #0d1117; }");
 
     // Initialize Network Manager in background thread
@@ -103,7 +102,7 @@ void MainWindow::setupUI() {
     m_centralStacked = new QStackedWidget(this);
     
     // Page 0: Startup Mode Selection
-    auto *startupPage = new StartupModePage(this);
+    auto *startupPage = new StartupModePage(m_networkManager, this);
     m_centralStacked->addWidget(startupPage);
 
     // Page 1: Device Monitor
@@ -128,15 +127,22 @@ void MainWindow::setupUI() {
 
     // Wire up mode selection
     connect(startupPage, &StartupModePage::modeSelected, this, [this](StartupModePage::Mode mode, bool intercept) {
+        Q_UNUSED(intercept);
+        if (mode != StartupModePage::Mode::Normal) return; // DHCP path finishes via dhcpWizardCompleted instead
         m_customToolBar->setVisible(true);
         statusBar()->setVisible(true);
-        if (mode == StartupModePage::Mode::Normal) {
-            m_centralStacked->setCurrentIndex(1); // Devices
-            if (m_navGroup->button(1)) m_navGroup->button(1)->setChecked(true);
-        } else {
-            m_dhcpPage->setStartupMode(intercept);
-            m_centralStacked->setCurrentIndex(3); // DHCP
-        }
+        m_centralStacked->setCurrentIndex(1); // Devices
+        if (m_navGroup->button(1)) m_navGroup->button(1)->setChecked(true);
+        // Start first scan now
+        onRefreshRequested();
+    });
+
+    connect(startupPage, &StartupModePage::dhcpWizardCompleted, this, [this](const gui::DhcpWizardSettings &settings) {
+        m_customToolBar->setVisible(true);
+        statusBar()->setVisible(true);
+        m_dhcpPage->applyWizardSettingsAndStart(settings);
+        m_centralStacked->setCurrentIndex(3); // DHCP
+        if (m_navGroup->button(3)) m_navGroup->button(3)->setChecked(true);
         // Start first scan now
         onRefreshRequested();
     });

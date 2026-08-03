@@ -59,8 +59,6 @@ add_executable(LANMonitor
     core/Device.h
     gui/MainWindow.cpp
     gui/MainWindow.h
-    gui/SplashScreen.cpp
-    gui/SplashScreen.h
     gui/DeviceTable.cpp
     gui/DeviceTable.h
     utils/Logger.h

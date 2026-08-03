@@ -19,6 +19,8 @@
 
 namespace gui {
 
+struct DhcpWizardSettings;
+
 class DHCPPage : public QWidget {
     Q_OBJECT
 
@@ -29,6 +31,10 @@ public:
     // Called by MainWindow after the startup mode dialog completes.
     // Pre-selects the requested intercept setting.
     void setStartupMode(bool intercept);
+
+    // Called after the DHCP setup wizard finishes. Fills every field with
+    // the collected settings and starts the server immediately.
+    void applyWizardSettingsAndStart(const gui::DhcpWizardSettings &settings);
 
 private slots:
     void onStartStopClicked();

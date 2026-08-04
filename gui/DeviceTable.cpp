@@ -273,15 +273,8 @@ void DeviceTable::onRenameRequested(const QString &mac, const QString &oldAlias)
 }
 
 QString DeviceTable::getVendorIcon(const QString &vendor) {
-    QString v = vendor.toLower();
-    if (v.contains("apple")) return "🍎";
-    if (v.contains("microsoft") || v.contains("intel")) return "💻";
-    if (v.contains("google") || v.contains("android")) return "📱";
-    if (v.contains("cisco") || v.contains("tp-link") || v.contains("netgear") || v.contains("linksys")) return "🌐";
-    if (v.contains("raspberry") || v.contains("arduino")) return "🥧";
-    if (v.contains("samsung") || v.contains("xiaomi") || v.contains("huawei")) return "📱";
-    if (v.contains("sony") || v.contains("nintendo") || v.contains("playstation")) return "🎮";
-    return "•";
+    Q_UNUSED(vendor);
+    return "●";
 }
 
 } // namespace gui

@@ -1,6 +1,7 @@
 #include "DHCPPage.h"
 #include "StaticLeaseDialog.h"
 #include "StartupModePage.h"
+#include "Theme.h"
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QNetworkInterface>
@@ -401,6 +402,7 @@ void DHCPPage::dhcpStatusChanged(bool active) {
         m_interceptCheck->setEnabled(true);
         m_detectBtn->setEnabled(true);
     }
+    Theme::pulse(m_statusLabel);
     m_startStopBtn->style()->unpolish(m_startStopBtn);
     m_startStopBtn->style()->polish(m_startStopBtn);
 }
@@ -414,6 +416,8 @@ void DHCPPage::onRefreshLeases() {
 }
 
 void DHCPPage::updateActiveLeases(const QList<core::DHCPLease> &leases) {
+    bool countChanged = (m_activeLeasesTable->rowCount() != leases.size());
+
     m_activeLeasesTable->setRowCount(0);
     for (int i = 0; i < leases.size(); ++i) {
         m_activeLeasesTable->insertRow(i);
@@ -428,6 +432,8 @@ void DHCPPage::updateActiveLeases(const QList<core::DHCPLease> &leases) {
         m_activeLeasesTable->setItem(i, 2, makeCell(leases[i].hostname));
         m_activeLeasesTable->setItem(i, 3, makeCell(leases[i].expiry.toString("yyyy/MM/dd hh:mm:ss")));
     }
+
+    if (countChanged) Theme::fadeIn(m_activeLeasesTable);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

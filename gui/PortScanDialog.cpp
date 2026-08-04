@@ -1,4 +1,5 @@
 #include "PortScanDialog.h"
+#include "Theme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -61,10 +62,15 @@ void PortScanDialog::applyTheme() {
         "QTableWidget { background: #181b22; border-radius: 8px; color: #e8eaf0; gridline-color: transparent; border: 1px solid rgba(255,255,255,0.05); }"
         "QHeaderView::section { background: transparent; color: #4a5068; font-size: 10px; font-weight: bold; border: none; padding: 10px; }"
         "QProgressBar { background: #1e2230; border-radius: 3px; }"
-        "QProgressBar::chunk { background: #4f7fff; border-radius: 3px; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #4f7fff, stop:1 #ff9142); border-radius: 3px; }"
         "QPushButton { background: #1e2230; color: #e8eaf0; border-radius: 6px; padding: 8px 16px; border: 0.5px solid rgba(255,255,255,0.1); }"
         "QPushButton:hover { background: #252a3d; }"
     );
+}
+
+void PortScanDialog::showEvent(QShowEvent *event) {
+    QDialog::showEvent(event);
+    Theme::fadeIn(this, 200);
 }
 
 void PortScanDialog::onResultFound(const core::PortResult &res) {
@@ -90,6 +96,7 @@ void PortScanDialog::onProgress(int current, int total) {
 void PortScanDialog::onFinished() {
     m_progressBar->setValue(m_progressBar->maximum());
     m_statusLabel->setText("Audit complete. " + QString::number(m_table->rowCount()) + " open services found.");
+    Theme::pulse(m_statusLabel);
 }
 
 } // namespace gui

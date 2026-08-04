@@ -1,4 +1,5 @@
 #include "IPCalculatorPage.h"
+#include "Theme.h"
 #include <QHeaderView>
 #include <QDialog>
 #include <QMenu>
@@ -410,6 +411,9 @@ void IPCalculatorPage::onCalculateForensic() {
     addCard(0, 0, "Network Address", m_lastResult.networkAddress, "MetricNetwork");
     addCard(0, 1, "Usable Hosts", QString::number(m_lastResult.usableHosts), "MetricHosts");
     addCard(0, 2, "Broadcast", m_lastResult.broadcastAddress, "MetricValue");
+
+    Theme::fadeIn(m_bitwiseCard);
+    Theme::fadeIn(m_breakdownCard);
     
     m_bitwiseCard->setVisible(true);
     m_breakdownCard->setVisible(true);
@@ -435,10 +439,10 @@ void IPCalculatorPage::onCalculateForensic() {
 
     if (m_lastResult.usableHosts > 0 && m_lastResult.usableHosts <= 65536) {
         m_generateBtn->setEnabled(true);
-        m_generateBtn->setText(QString("📋 Generate Audit List for %1 Hosts").arg(m_lastResult.usableHosts));
+        m_generateBtn->setText(QString("Generate Audit List for %1 Hosts").arg(m_lastResult.usableHosts));
     } else {
         m_generateBtn->setEnabled(false);
-        m_generateBtn->setText("📋 Range too large for automated audit (Max /16)");
+        m_generateBtn->setText("Range too large for automated audit (Max /16)");
     }
 }
 
@@ -511,6 +515,7 @@ void IPCalculatorPage::onCalculateSubnets() {
             m_subnetResults->setItem(i, 3, new QTableWidgetItem("-"));
         }
     }
+    Theme::fadeIn(m_subnetResults);
 }
 
 void IPCalculatorPage::onAggregateCIDR() {
@@ -525,6 +530,7 @@ void IPCalculatorPage::onAggregateCIDR() {
         m_aggResultValue->setStyleSheet("font-size: 22px; font-weight: 500; color: #2dd98f; font-family: monospace; background: transparent; border: none;");
         m_aggResultSubtitle->setText("Optimal Combined Route");
     }
+    Theme::pulse(m_aggResultContainer);
 }
 
 void IPCalculatorPage::applyTheme() {

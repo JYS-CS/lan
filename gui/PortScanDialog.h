@@ -4,6 +4,7 @@
 #include <QTableWidget>
 #include <QProgressBar>
 #include <QLabel>
+#include <QShowEvent>
 #include "../core/PortScanner.h"
 
 namespace gui {
@@ -24,6 +25,10 @@ private:
     void setupUi();
     void applyTheme();
 
+protected:
+    void showEvent(QShowEvent *event) override;
+
+private:
     QString m_ip;
     core::PortScanner *m_scanner;
     QTableWidget *m_table;

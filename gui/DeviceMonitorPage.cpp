@@ -1,4 +1,5 @@
 #include "DeviceMonitorPage.h"
+#include "Theme.h"
 #include <QHeaderView>
 #include <QLineEdit>
 #include <QIcon>
@@ -136,9 +137,13 @@ void DeviceMonitorPage::updateDevices(const QList<core::Device> &devices) {
         else if (s.contains("idle")) idle++;
     }
     
-    m_onlineCount->setText(QString::number(online));
-    m_idleCount->setText(QString::number(idle));
-    m_totalCount->setText(QString::number(devices.size()));
+    QString onlineText = QString::number(online);
+    QString idleText   = QString::number(idle);
+    QString totalText  = QString::number(devices.size());
+
+    if (m_onlineCount->text() != onlineText) { m_onlineCount->setText(onlineText); Theme::pulse(m_onlineCount); }
+    if (m_idleCount->text()   != idleText)   { m_idleCount->setText(idleText);     Theme::pulse(m_idleCount); }
+    if (m_totalCount->text()  != totalText)  { m_totalCount->setText(totalText);   Theme::pulse(m_totalCount); }
 }
 
 void DeviceMonitorPage::updateGatewayStatus(bool active) {
@@ -157,6 +162,7 @@ void DeviceMonitorPage::updateGatewayStatus(bool active) {
             "font-weight: bold; padding: 5px 12px; letter-spacing: 0.05em; }"
         );
     }
+    Theme::pulse(m_gatewayStatus);
 }
 
 void DeviceMonitorPage::onSearchChanged(const QString &text) {

@@ -8,12 +8,14 @@
 #include <QDateTime>
 #include <QLabel>
 #include <QTableWidget>
+#include <QVariantAnimation>
 #include "../core/NetworkManager.h"
 #include "../core/TrafficMonitor.h"
 
 namespace gui {
 
-// Simple real-time chart widget
+// Real-time duotone area chart. Every new sample grows in smoothly
+// instead of snapping to its final height.
 class TrafficChart : public QWidget {
     Q_OBJECT
 public:
@@ -26,6 +28,10 @@ protected:
 private:
     QList<double> m_historyUp;
     QList<double> m_historyDown;
+    double m_prevLastUp   = 0.0;
+    double m_prevLastDown = 0.0;
+    double m_growT = 1.0; // 0..1 animation progress for the newest sample
+    QVariantAnimation *m_growAnim = nullptr;
     static const int MAX_POINTS = 60; // 1 minute of data
 };
 

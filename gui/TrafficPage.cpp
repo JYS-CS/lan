@@ -1,4 +1,5 @@
 #include "TrafficPage.h"
+#include "Theme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -18,16 +19,44 @@ namespace gui {
 TrafficChart::TrafficChart(QWidget *parent) : QWidget(parent) {
     setFixedHeight(200);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    m_growAnim = new QVariantAnimation(this);
+    m_growAnim->setDuration(260);
+    m_growAnim->setStartValue(0.0);
+    m_growAnim->setEndValue(1.0);
+    m_growAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_growAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
+        m_growT = v.toDouble();
+        update();
+    });
 }
 
 void TrafficChart::addData(double up, double down) {
+    m_prevLastUp   = m_historyUp.isEmpty()   ? up   : m_historyUp.last();
+    m_prevLastDown = m_historyDown.isEmpty() ? down : m_historyDown.last();
+
     m_historyUp.append(up);
     m_historyDown.append(down);
     if (m_historyUp.size() > MAX_POINTS) {
         m_historyUp.removeFirst();
         m_historyDown.removeFirst();
     }
-    update();
+
+    m_growAnim->stop();
+    m_growAnim->start();
+}
+
+// Smooth polyline through data using midpoint control points — cheap,
+// dependency-free curve smoothing that avoids sharp zig-zags.
+static void addSmoothPath(QPainterPath &path, const QList<QPointF> &pts) {
+    if (pts.isEmpty()) return;
+    path.moveTo(pts.first());
+    if (pts.size() == 1) return;
+    for (int i = 0; i < pts.size() - 1; ++i) {
+        QPointF mid = (pts[i] + pts[i + 1]) / 2.0;
+        path.quadTo(pts[i], mid);
+    }
+    path.lineTo(pts.last());
 }
 
 void TrafficChart::paintEvent(QPaintEvent *) {
@@ -41,33 +70,61 @@ void TrafficChart::paintEvent(QPaintEvent *) {
     for (double v : m_historyUp) if (v > maxVal) maxVal = v;
     for (double v : m_historyDown) if (v > maxVal) maxVal = v;
 
-    auto drawLine = [&](const QList<double> &data, QColor color, QColor areaColor) {
+    double xStep   = (double)width() / (MAX_POINTS - 1);
+    double yFactor = (double)(height() - 40) / maxVal;
+
+    auto drawSeries = [&](const QList<double> &data, double prevLast, QColor color, QColor areaTop) {
         if (data.size() < 2) return;
-        QPainterPath path;
-        double xStep = (double)width() / (MAX_POINTS - 1);
-        double yFactor = (double)(height() - 40) / maxVal;
-        path.moveTo(0, height());
+
+        QList<QPointF> pts;
+        pts.reserve(data.size());
         for (int i = 0; i < data.size(); ++i) {
+            double value = data[i];
+            if (i == data.size() - 1) {
+                // Animate the newest point growing from its previous height
+                value = prevLast + (data[i] - prevLast) * m_growT;
+            }
             double x = i * xStep;
-            double y = height() - 20 - (data[i] * yFactor);
-            if (i == 0) path.lineTo(x, y);
-            else path.lineTo(x, y);
+            double y = height() - 20 - (value * yFactor);
+            pts.append(QPointF(x, y));
         }
-        QPainterPath fill = path;
-        fill.lineTo((data.size()-1) * xStep, height());
+
+        QPainterPath line;
+        addSmoothPath(line, pts);
+
+        QPainterPath fill = line;
+        fill.lineTo(pts.last().x(), height());
+        fill.lineTo(pts.first().x(), height());
         fill.closeSubpath();
-        p.fillPath(fill, areaColor);
+
+        QLinearGradient grad(0, 0, 0, height());
+        grad.setColorAt(0.0, areaTop);
+        grad.setColorAt(1.0, QColor(areaTop.red(), areaTop.green(), areaTop.blue(), 0));
+        p.fillPath(fill, grad);
+
         p.setPen(QPen(color, 2));
-        p.drawPath(path);
+        p.drawPath(line);
+
+        // Highlight the newest point
+        p.setBrush(color);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(pts.last(), 3, 3);
     };
 
-    drawLine(m_historyDown, QColor("#2dd98f"), QColor(45, 217, 143, 30));
-    drawLine(m_historyUp, QColor("#4f7fff"), QColor(79, 127, 255, 30));
+    drawSeries(m_historyDown, m_prevLastDown, QColor("#ff9142"), QColor(255, 145, 66, 55));
+    drawSeries(m_historyUp,   m_prevLastUp,   QColor("#4f7fff"), QColor(79, 127, 255, 55));
 
-    p.setPen(QColor("#7c8299"));
-    p.setFont(QFont("Inter", 9));
-    p.drawText(10, 20, "UPLOAD (BLUE)");
-    p.drawText(width() - 120, 20, "DOWNLOAD (GREEN)");
+    // Legend with colored dots instead of plain text
+    auto drawLegend = [&](int x, QColor color, const QString &text) {
+        p.setBrush(color);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(x, 15), 4, 4);
+        p.setPen(QColor("#7c8299"));
+        p.setFont(QFont("Inter", 9));
+        p.drawText(x + 10, 19, text);
+    };
+    drawLegend(10, QColor("#4f7fff"), "UPLOAD");
+    drawLegend(120, QColor("#ff9142"), "DOWNLOAD");
 }
 
 TrafficPage::TrafficPage(core::NetworkManager *networkManager, QWidget *parent)
@@ -82,7 +139,7 @@ void TrafficPage::setupUi() {
     mainLayout->setSpacing(25);
 
     QHBoxLayout *headerLayout = new QHBoxLayout();
-    headerLayout->addWidget(createMetricCard("Total Inbound", "0 B", "#2dd98f", &m_totalDownLabel));
+    headerLayout->addWidget(createMetricCard("Total Inbound", "0 B", "#ff9142", &m_totalDownLabel));
     headerLayout->addWidget(createMetricCard("Total Outbound", "0 B", "#4f7fff", &m_totalUpLabel));
     headerLayout->addWidget(createMetricCard("Current Throughput", "0 B/s", "#e8eaf0", &m_currentRateLabel));
     mainLayout->addLayout(headerLayout);

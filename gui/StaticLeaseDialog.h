@@ -4,6 +4,7 @@
 #include <QLineEdit>
 #include <QFormLayout>
 #include <QDialogButtonBox>
+#include <QShowEvent>
 
 namespace gui {
 
@@ -19,6 +20,9 @@ public:
 
     void setMac(const QString &mac) { m_macEdit->setText(mac); }
     void setIp(const QString &ip) { m_ipEdit->setText(ip); }
+
+protected:
+    void showEvent(QShowEvent *event) override;
 
 private:
     void applyTheme();

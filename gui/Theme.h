@@ -1,6 +1,10 @@
 #pragma once
 #include <QString>
 #include <QColor>
+#include <QWidget>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
+#include <QSequentialAnimationGroup>
 
 namespace gui {
 
@@ -80,6 +84,49 @@ inline QString globalStyleSheet() {
         "   border-radius: 6px; text-align: center; color: #e8eaf0; }"
         "QProgressBar::chunk { background-color: qlineargradient(x1:0,y1:0,x2:1,y2:0, "
         "   stop:0 #4f7fff, stop:1 #ff9142); border-radius: 6px; }";
+}
+
+// Brief dim-then-brighten flash, used to draw the eye to a value that
+// just changed (device counts, lease counts, freshly computed results).
+inline void pulse(QWidget *w) {
+    if (!w) return;
+    auto *effect = new QGraphicsOpacityEffect(w);
+    w->setGraphicsEffect(effect);
+
+    auto *dim = new QPropertyAnimation(effect, "opacity");
+    dim->setDuration(90);
+    dim->setStartValue(1.0);
+    dim->setEndValue(0.35);
+
+    auto *bright = new QPropertyAnimation(effect, "opacity");
+    bright->setDuration(220);
+    bright->setStartValue(0.35);
+    bright->setEndValue(1.0);
+    bright->setEasingCurve(QEasingCurve::OutCubic);
+
+    auto *seq = new QSequentialAnimationGroup(w);
+    seq->addAnimation(dim);
+    seq->addAnimation(bright);
+    QObject::connect(seq, &QSequentialAnimationGroup::finished, w, [w]() {
+        w->setGraphicsEffect(nullptr);
+    });
+    seq->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+// Simple fade-in, used when a card/panel/result appears or refreshes.
+inline void fadeIn(QWidget *w, int durationMs = 260) {
+    if (!w) return;
+    auto *effect = new QGraphicsOpacityEffect(w);
+    w->setGraphicsEffect(effect);
+    auto *anim = new QPropertyAnimation(effect, "opacity", w);
+    anim->setDuration(durationMs);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    QObject::connect(anim, &QPropertyAnimation::finished, w, [w]() {
+        w->setGraphicsEffect(nullptr);
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 } // namespace Theme

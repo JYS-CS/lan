@@ -6,6 +6,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QStackedWidget>
+#include <QProgressBar>
 #include <QString>
 
 namespace core { class NetworkManager; }
@@ -86,6 +87,7 @@ private:
     QLabel      *m_detMaskValue    = nullptr;
     QLabel      *m_detGatewayValue = nullptr;
     QLabel      *m_detStatusLabel  = nullptr;
+    QProgressBar *m_detProgress    = nullptr;
     QPushButton *m_detRetryBtn     = nullptr;
     QPushButton *m_detBackBtn      = nullptr;
     QPushButton *m_detContinueBtn  = nullptr;

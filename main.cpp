@@ -1,5 +1,6 @@
 #include <QApplication>
 #include "gui/MainWindow.h"
+#include "gui/Theme.h"
 #include "core/DHCPManager.h"
 #include <crafter.h>
 
@@ -17,6 +18,7 @@ int main(int argc, char *argv[]) {
     qSetMessagePattern("[%{time h:mm:ss.zzz}] %{message}");
 
     QApplication app(argc, argv);
+    app.setStyleSheet(gui::Theme::globalStyleSheet());
 
     gui::MainWindow mainWindow;
     mainWindow.show();

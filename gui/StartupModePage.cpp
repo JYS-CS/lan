@@ -1,5 +1,6 @@
 #include "StartupModePage.h"
 #include "../core/NetworkManager.h"
+#include "Theme.h"
 #include <QFrame>
 #include <QFile>
 #include <QProcess>
@@ -9,6 +10,9 @@
 #include <QSvgRenderer>
 #include <QRegularExpression>
 #include <QGridLayout>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
+#include <QProgressBar>
 
 namespace gui {
 
@@ -41,8 +45,9 @@ QLabel *makeIconLabel(QWidget *parent, const QString &resourcePath, int size, co
     return lbl;
 }
 
-const QColor kAccent   = QColor("#4f7fff");
-const QColor kNeutral  = QColor("#9aa0b8");
+const QColor kAccent   = gui::Theme::AccentBlue;
+const QColor kOrange   = gui::Theme::AccentOrange;
+const QColor kNeutral  = gui::Theme::TextSecondary;
 
 } // namespace
 
@@ -133,11 +138,11 @@ QWidget *StartupModePage::buildStepMode() {
 
     // DHCP card
     QWidget *dhcpCard = new QWidget(page);
-    dhcpCard->setObjectName("ModeCard");
+    dhcpCard->setObjectName("ModeCardOrange");
     QVBoxLayout *dl = new QVBoxLayout(dhcpCard);
     dl->setContentsMargins(24, 24, 24, 24);
     dl->setSpacing(12);
-    dl->addWidget(makeIconLabel(dhcpCard, ":/resources/subnet.svg", 40, kAccent));
+    dl->addWidget(makeIconLabel(dhcpCard, ":/resources/subnet.svg", 40, kOrange));
     QLabel *dTitle = new QLabel("DHCP Server Mode", dhcpCard);
     dTitle->setObjectName("ModeCardTitle");
     dTitle->setAlignment(Qt::AlignCenter);
@@ -148,7 +153,7 @@ QWidget *StartupModePage::buildStepMode() {
     dDesc->setAlignment(Qt::AlignCenter);
     dDesc->setWordWrap(true);
     m_dhcpBtn = new QPushButton("Continue to DHCP Setup", dhcpCard);
-    m_dhcpBtn->setObjectName("PrimaryBtn");
+    m_dhcpBtn->setObjectName("PrimaryBtnOrange");
     m_dhcpBtn->setCursor(Qt::PointingHandCursor);
     dl->addWidget(dTitle);
     dl->addWidget(dDesc);
@@ -172,7 +177,7 @@ QWidget *StartupModePage::buildStepRouterWarning() {
     pageLayout->setContentsMargins(0, 0, 0, 0);
     pageLayout->setSpacing(20);
 
-    pageLayout->addWidget(makeIconLabel(page, ":/resources/router.svg", 36, kAccent));
+    pageLayout->addWidget(makeIconLabel(page, ":/resources/router.svg", 36, kOrange));
 
     QLabel *title = new QLabel("Confirm DHCP Server Setup", page);
     title->setObjectName("PageTitle");
@@ -261,6 +266,12 @@ QWidget *StartupModePage::buildStepDetectNetwork() {
     m_detStatusLabel->setAlignment(Qt::AlignCenter);
     m_detStatusLabel->setWordWrap(true);
     pageLayout->addWidget(m_detStatusLabel);
+
+    m_detProgress = new QProgressBar(page);
+    m_detProgress->setRange(0, 0); // indeterminate — animates automatically while visible
+    m_detProgress->setTextVisible(false);
+    m_detProgress->setFixedHeight(6);
+    pageLayout->addWidget(m_detProgress);
 
     pageLayout->addStretch();
 
@@ -535,6 +546,7 @@ void StartupModePage::runNetworkDetection() {
 
     m_detStatusLabel->setText("Detecting…");
     m_detContinueBtn->setEnabled(false);
+    m_detProgress->setVisible(true);
     m_detIfaceValue->setText("Detecting…");
     m_detIpValue->setText("Detecting…");
     m_detMaskValue->setText("Detecting…");
@@ -543,6 +555,7 @@ void StartupModePage::runNetworkDetection() {
     QString iface = m_networkManager->getActiveInterface();
     if (iface.isEmpty()) {
         m_detStatusLabel->setText("No active network interface detected. Check your connection and retry.");
+        m_detProgress->setVisible(false);
         return;
     }
 
@@ -550,6 +563,7 @@ void StartupModePage::runNetworkDetection() {
     QHostAddress mask = m_networkManager->getInterfaceNetmask(iface);
     if (ip.isNull() || mask.isNull()) {
         m_detStatusLabel->setText("Could not read the IP configuration for " + iface + ".");
+        m_detProgress->setVisible(false);
         return;
     }
 
@@ -588,12 +602,29 @@ void StartupModePage::runNetworkDetection() {
     } else {
         m_detStatusLabel->setText("Network detected successfully.");
     }
+    m_detProgress->setVisible(false);
     m_detContinueBtn->setEnabled(true);
 }
 
 void StartupModePage::goToStep(int index) {
     m_steps->setCurrentIndex(index);
     m_stepLabel->setText(index == 0 ? "STEP 1" : QString("STEP %1 OF 6").arg(index + 1));
+
+    QWidget *page = m_steps->currentWidget();
+    if (page) {
+        auto *effect = new QGraphicsOpacityEffect(page);
+        page->setGraphicsEffect(effect);
+        auto *anim = new QPropertyAnimation(effect, "opacity", page);
+        anim->setDuration(260);
+        anim->setStartValue(0.0);
+        anim->setEndValue(1.0);
+        anim->setEasingCurve(QEasingCurve::OutCubic);
+        connect(anim, &QPropertyAnimation::finished, effect, [page]() {
+            page->setGraphicsEffect(nullptr);
+        });
+        anim->start(QAbstractAnimation::DeleteWhenStopped);
+    }
+
     if (index == 2) runNetworkDetection();
 }
 
@@ -615,6 +646,8 @@ void StartupModePage::applyTheme() {
         "QLabel#WarnLabel { font-size: 13px; color: #e8c07a; background: rgba(232,192,122,0.08); "
         "   border: 0.5px solid rgba(232,192,122,0.25); border-radius: 8px; padding: 14px 16px; }"
         "QWidget#ModeCard { background-color: #181b22; border: 0.5px solid rgba(255,255,255,0.08); border-radius: 12px; }"
+        "QWidget#ModeCardOrange { background-color: #181b22; border: 0.5px solid rgba(255,145,66,0.25); border-radius: 12px; }"
+        "QWidget#ModeCardOrange:hover { border: 0.5px solid rgba(255,145,66,0.5); }"
         "QLabel#ModeCardTitle { font-size: 16px; font-weight: 600; color: #e8eaf0; }"
         "QLabel#ModeCardDesc { font-size: 13px; color: #8a93b8; }"
         "QWidget#ResultBox { background-color: #131722; border: 0.5px solid rgba(255,255,255,0.07); border-radius: 10px; }"
@@ -626,6 +659,8 @@ void StartupModePage::applyTheme() {
         "QPushButton { border-radius: 6px; font-size: 13px; font-weight: 500; padding: 10px 18px; }"
         "QPushButton#PrimaryBtn { background-color: #4f7fff; color: white; border: none; }"
         "QPushButton#PrimaryBtn:hover { background-color: #3d6ef0; }"
+        "QPushButton#PrimaryBtnOrange { background-color: #ff9142; color: #1a1206; border: none; font-weight: 600; }"
+        "QPushButton#PrimaryBtnOrange:hover { background-color: #f07f2e; }"
         "QPushButton#GhostBtn { background-color: transparent; border: 0.5px solid rgba(255,255,255,0.12); color: #9aa0b8; }"
         "QPushButton#GhostBtn:hover { background-color: #1e2230; color: #e8eaf0; }"
         "QPushButton#OptionCard { text-align: left; background-color: #181b22; color: #b5bad0; "

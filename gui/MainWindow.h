@@ -35,6 +35,7 @@ private slots:
     void onRefreshRequested();
     void handleScanError(const QString &message);
     void updateStatusBar(const QString &message);
+    void animatePageChange(int index);
 
 protected:
     void closeEvent(QCloseEvent *event) override;

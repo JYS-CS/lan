@@ -15,8 +15,11 @@
 #include "TrafficPage.h"
 #include "PortScanDialog.h"
 #include "StartupModePage.h"
+#include "Theme.h"
 #include <QButtonGroup>
 #include <QFrame>
+#include <QGraphicsOpacityEffect>
+#include <QPropertyAnimation>
 
 namespace gui {
 
@@ -127,6 +130,8 @@ void MainWindow::setupUI() {
     m_ipCalcPage = new IPCalculatorPage(this);
     m_centralStacked->addWidget(m_ipCalcPage);
 
+    connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
+
     setCentralWidget(m_centralStacked);
     setupStatusBar();
     statusBar()->setVisible(false); // Hidden until mode selected
@@ -177,7 +182,9 @@ void MainWindow::setupToolBar() {
     // 1. Logo Section
     QLabel *logoIcon = new QLabel(this);
     logoIcon->setFixedSize(20, 20);
-    logoIcon->setStyleSheet("background-color: #1a6fbf; border-radius: 4px;");
+    logoIcon->setStyleSheet(
+        "background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #4f7fff, stop:0.5 #4f7fff, "
+        "stop:0.5 #ff9142, stop:1 #ff9142); border-radius: 5px;");
     QLabel *logoText = new QLabel("LAN Monitor", this);
     logoText->setStyleSheet("font-size: 13px; font-weight: bold; color: #e8eaf0;");
     hLayout->addWidget(logoIcon);
@@ -212,9 +219,9 @@ void MainWindow::setupToolBar() {
                            "QToolButton::menu-indicator { width: 0px; }");
         
         QMenu *m = new QMenu(btn);
-        m->setStyleSheet("QMenu { background: #0d1117; border: 1px solid rgba(0,229,255,0.2); border-radius: 6px; padding: 4px; } "
+        m->setStyleSheet("QMenu { background: #0d1117; border: 1px solid rgba(79,127,255,0.25); border-radius: 6px; padding: 4px; } "
                          "QMenu::item { padding: 6px 20px 6px 30px; border-radius: 4px; color: #7c8299; } "
-                         "QMenu::item:selected { background: rgba(0,229,255,0.15); color: #00e5ff; }");
+                         "QMenu::item:selected { background: rgba(79,127,255,0.15); color: #4f7fff; }");
         
         for (const auto &item : items) {
             QAction *act = m->addAction(QIcon(std::get<1>(item)), std::get<0>(item));
@@ -260,12 +267,14 @@ void MainWindow::setupToolBar() {
 
     // Apply Global Toolbar Style
     m_customToolBar->setStyleSheet(
-        "QWidget#Toolbar { background-color: #0d1117; border-bottom: 1px solid rgba(0,229,255,0.15); }"
+        "QWidget#Toolbar { background-color: #0d1117; border-bottom: 1px solid rgba(79,127,255,0.15); }"
         "QPushButton { color: #8b949e; border-radius: 6px; font-size: 12px; padding: 0 9px; }"
-        "QPushButton:hover { background: rgba(0,229,255,0.1); color: #00e5ff; }"
-        "QPushButton:checked { background: rgba(0,229,255,0.05); border: 1px solid rgba(0,229,255,0.3); color: #00e5ff; font-weight: bold; }"
-        "QPushButton#ScanBtn { background: #00e5ff; color: #0d1117; font-size: 11px; font-weight: bold; padding: 0 12px; border-radius: 4px; }"
-        "QPushButton#ScanBtn:hover { background: #00cce6; }"
+        "QPushButton:hover { background: rgba(79,127,255,0.1); color: #4f7fff; }"
+        "QPushButton:checked { background: rgba(79,127,255,0.08); border: 1px solid rgba(79,127,255,0.35); "
+        "   border-bottom: 2px solid #ff9142; color: #4f7fff; font-weight: bold; }"
+        "QPushButton#ScanBtn { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #4f7fff, stop:1 #6d5cff); "
+        "   color: white; font-size: 11px; font-weight: bold; padding: 0 12px; border-radius: 4px; }"
+        "QPushButton#ScanBtn:hover { background: #3d6ef0; }"
     );
 
     setMenuWidget(m_customToolBar);
@@ -276,7 +285,7 @@ void MainWindow::setupStatusBar() {
     m_statusTextLabel->setStyleSheet("font-size: 11px; color: #8b949e; margin-left: 15px;");
     
     statusBar()->addWidget(m_statusTextLabel);
-    statusBar()->setStyleSheet("QStatusBar { background-color: #0d1117; border-top: 1px solid rgba(0,229,255,0.15); }");
+    statusBar()->setStyleSheet("QStatusBar { background-color: #0d1117; border-top: 1px solid rgba(79,127,255,0.15); }");
 }
 
 void MainWindow::updateDhcpBadge(const QString &status) {
@@ -309,8 +318,26 @@ void MainWindow::handleScanError(const QString &message) {
 
 void MainWindow::updateStatusBar(const QString &message) {
     m_statusTextLabel->setText("● " + message);
-    statusBar()->setStyleSheet("QStatusBar { background-color: #0d1117; border-top: 1px solid rgba(0,229,255,0.15); }");
-    m_statusTextLabel->setStyleSheet("font-size: 11px; color: #00e5ff; margin-left: 15px;");
+    statusBar()->setStyleSheet("QStatusBar { background-color: #0d1117; border-top: 1px solid rgba(79,127,255,0.15); }");
+    m_statusTextLabel->setStyleSheet("font-size: 11px; color: #4f7fff; margin-left: 15px;");
+}
+
+void MainWindow::animatePageChange(int index) {
+    QWidget *page = m_centralStacked->widget(index);
+    if (!page) return;
+
+    auto *effect = new QGraphicsOpacityEffect(page);
+    page->setGraphicsEffect(effect);
+
+    auto *anim = new QPropertyAnimation(effect, "opacity", page);
+    anim->setDuration(220);
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QPropertyAnimation::finished, effect, [page]() {
+        page->setGraphicsEffect(nullptr); // avoid the perf cost of a persistent opacity layer
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
 } // namespace gui

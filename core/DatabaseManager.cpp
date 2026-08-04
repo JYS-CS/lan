@@ -90,6 +90,16 @@ void DatabaseManager::saveDevice(const Device &d) {
     }
 }
 
+void DatabaseManager::removeDevice(const QString &ip) {
+    if (ip.isEmpty()) return;
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM devices WHERE last_ip = :ip");
+    q.bindValue(":ip", ip);
+    if (!q.exec()) {
+        qDebug() << "DatabaseManager: Remove error (device):" << q.lastError().text();
+    }
+}
+
 QList<Device> DatabaseManager::getAllDevices() {
     QList<Device> list;
     QSqlQuery q("SELECT * FROM devices", m_db);

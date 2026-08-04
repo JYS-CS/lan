@@ -64,6 +64,7 @@ public:
 
 public slots:
     // Management actions
+    void activate();  // Called once after mode selection to start sniffer, timers, and firewall
     void addStaticLease(const QString &mac, const QString &ip, const QString &host);
     void startDHCPServer(const core::DHCPServerConfig &config);
     void stopDHCPServer();
@@ -78,7 +79,7 @@ public:
     static QString getMacVendor(const QString &mac);
     bool isDeviceBlocked(const QString &mac) const;
     DHCPManager* getDHCPManager() const { return m_dhcpManager; }
-    void addDiscoveredDevice(const core::Device &dev);
+    void addDiscoveredDevice(const core::Device &dev, bool fromDhcp = false);
     void startCapture(const QString &iface);
     QString getActiveInterface();
     QHostAddress getInterfaceAddress(const QString &iface);

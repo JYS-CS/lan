@@ -36,7 +36,7 @@ DHCPPage::DHCPPage(core::NetworkManager *networkManager, QWidget *parent)
 
     m_leaseTimer = new QTimer(this);
     connect(m_leaseTimer, &QTimer::timeout, this, &DHCPPage::onRefreshLeases);
-    m_leaseTimer->start(5000);
+    m_leaseTimer->start(2000); // 2 s — fast enough for snappy updates without hammering the mutex
 
     QTimer::singleShot(100, this, &DHCPPage::autoFillNetworkInfo);
 }
@@ -268,16 +268,40 @@ void DHCPPage::startDhcpWithCurrentConfig() {
 
     // Gateway given to clients depends on the mode the user chose
     if (m_interceptMode) {
-        // We are the gateway — clients' traffic flows through us
+        // Intercept: clients route their traffic through this machine.
+        // Tell the DHCP server to advertise our IP as the gateway.
         config.routerIp = m_myIpEdit->text();
-        // Enable kernel IP forwarding + NAT so we actually forward to the real router
+
+        // Enable kernel IP forwarding so forwarded packets are not silently dropped.
+        // We save the previous value so we can restore it exactly on stop.
+        QProcess proc;
+        proc.start("sh", {"-c", "cat /proc/sys/net/ipv4/ip_forward"});
+        proc.waitForFinished();
+        m_prevIpForward = proc.readAllStandardOutput().trimmed().toInt();
+
         QProcess::execute("sh", {"-c", "sysctl -w net.ipv4.ip_forward=1"});
         QProcess::execute("sh", {"-c", "sysctl -w net.ipv4.conf.all.send_redirects=0"});
-        QProcess::execute("sh", {"-c", "iptables -t nat -A POSTROUTING -j MASQUERADE 2>/dev/null"});
-        qDebug() << "[DHCP] Intercept mode: ip_forward=1, NAT MASQUERADE enabled";
+
+        // NAT rule: masquerade only forwarded traffic from the DHCP pool range,
+        // NOT the laptop's own connections. This keeps the laptop's internet intact.
+        // We match on the source range that we hand out to clients.
+        const QString poolRange = m_rangeStartEdit->text() + "/"
+                                + m_subnetEdit->text();
+        // Use nftables for the NAT rule (cleaner, scoped, easy to remove).
+        QProcess::execute("sh", {"-c",
+            "nft add table ip lan_monitor_nat 2>/dev/null; "
+            "nft add chain ip lan_monitor_nat postrouting "
+            "  '{ type nat hook postrouting priority 100; }' 2>/dev/null; "
+            "nft add rule ip lan_monitor_nat postrouting "
+            "  ip saddr != " + m_myIpEdit->text().toUtf8() + " "
+            "  oif " + m_ifaceEdit->text().toUtf8() + " "
+            "  masquerade 2>/dev/null"
+        });
+        qDebug() << "[DHCP] Intercept mode: ip_forward=1, scoped NAT MASQUERADE enabled";
     } else {
         // Transparent — real router stays as gateway
         config.routerIp = m_gatewayEdit->text();
+        m_prevIpForward = -1; // not set by us
     }
 
     config.rangeStart       = m_rangeStartEdit->text();
@@ -305,12 +329,19 @@ void DHCPPage::stopDhcpAndCleanup() {
     if (!m_dhcpManager) return;
     m_dhcpManager->stopServer();
 
-    // Always clean up NAT rules regardless of current mode,
-    // in case the mode was active before
-    QProcess::execute("sh", {"-c", "sysctl -w net.ipv4.ip_forward=0"});
-    QProcess::execute("sh", {"-c", "iptables -t nat -D POSTROUTING -j MASQUERADE 2>/dev/null"});
+    // Remove the scoped NAT table we added for intercept mode.
+    QProcess::execute("sh", {"-c", "nft delete table ip lan_monitor_nat 2>/dev/null"});
+
+    // Only restore ip_forward if WE turned it on — don't touch it otherwise.
+    if (m_prevIpForward == 0) {
+        QProcess::execute("sh", {"-c", "sysctl -w net.ipv4.ip_forward=0"});
+        qDebug() << "[DHCP] Restored ip_forward=0 (was off before we started)";
+    }
+    QProcess::execute("sh", {"-c", "sysctl -w net.ipv4.conf.all.send_redirects=1"});
+
+    m_prevIpForward = -1;
     m_interceptMode = false;
-    qDebug() << "[DHCP] Server stopped. ip_forward=0, NAT rule removed.";
+    qDebug() << "[DHCP] Server stopped. Intercept mode cleaned up.";
 }
 
 void DHCPPage::onStartStopClicked() {
@@ -339,6 +370,10 @@ void DHCPPage::dhcpStatusChanged(bool active) {
     m_serverActive = active;
     bool intercept = m_interceptMode;
 
+    // Hide the config section while the server is running;
+    // only show it when the server is stopped so the user can edit settings.
+    m_configWidget->setVisible(!active);
+
     if (active) {
         QString modeTag = intercept ? "  [INTERCEPT]" : "  [TRANSPARENT]";
         m_startStopBtn->setText("Stop Server");
@@ -349,12 +384,6 @@ void DHCPPage::dhcpStatusChanged(bool active) {
             "border: 0.5px solid rgba(45,217,143,0.2); border-radius: 12px; "
             "padding: 4px 12px; font-weight: 500; font-size: 11px; margin-right: 15px; }");
 
-        // Lock config while running
-        const QList<QLineEdit*> fields = {m_ifaceEdit, m_rangeStartEdit,
-            m_rangeEndEdit, m_subnetEdit, m_gatewayEdit, m_dnsEdit, m_leaseEdit};
-        for (auto *f : fields) f->setReadOnly(true);
-        m_authCheck->setEnabled(false);
-        m_interceptCheck->setEnabled(false);
         m_detectBtn->setEnabled(false);
     } else {
         m_startStopBtn->setText("Start Server");

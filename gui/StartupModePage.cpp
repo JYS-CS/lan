@@ -49,6 +49,7 @@ const QColor kNeutral  = QColor("#9aa0b8");
 StartupModePage::StartupModePage(core::NetworkManager *networkManager, QWidget *parent)
     : QWidget(parent), m_networkManager(networkManager)
 {
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     buildUi();
     applyTheme();
 }
@@ -57,7 +58,8 @@ void StartupModePage::buildUi() {
     QVBoxLayout *root = new QVBoxLayout(this);
     root->setContentsMargins(36, 56, 36, 36);
     root->setSpacing(18);
-    root->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+    // No alignment constraint — let the layout fill the full widget area
+    // so the page expands properly inside the QStackedWidget.
 
     m_stepLabel = new QLabel("STEP 1", this);
     m_stepLabel->setObjectName("StepLabel");
@@ -67,6 +69,7 @@ void StartupModePage::buildUi() {
     m_steps = new QStackedWidget(this);
     m_steps->setObjectName("StepStack");
     m_steps->setMaximumWidth(820);
+    m_steps->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_steps->addWidget(buildStepMode());            // 0
     m_steps->addWidget(buildStepRouterWarning());    // 1
     m_steps->addWidget(buildStepDetectNetwork());    // 2
@@ -74,12 +77,12 @@ void StartupModePage::buildUi() {
     m_steps->addWidget(buildStepGateway());          // 4
     m_steps->addWidget(buildStepReview());           // 5
 
+    // Horizontally center the step widget by flanking with stretches.
     QHBoxLayout *centerRow = new QHBoxLayout();
-    centerRow->addStretch();
-    centerRow->addWidget(m_steps);
-    centerRow->addStretch();
-    root->addLayout(centerRow);
-    root->addStretch();
+    centerRow->addStretch(1);
+    centerRow->addWidget(m_steps, 4); // give it a strong stretch factor
+    centerRow->addStretch(1);
+    root->addLayout(centerRow, 1); // expand vertically to fill available height
 }
 
 // ── Step 1: choose a mode ────────────────────────────────────────────────────

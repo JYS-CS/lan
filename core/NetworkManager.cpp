@@ -16,6 +16,7 @@
 #include <QProcess>
 #include <QElapsedTimer>
 #include <QCoreApplication>
+#include <QHostInfo>
 
 // C++ std
 #include <fstream>
@@ -100,15 +101,31 @@ PassiveSniffer::~PassiveSniffer() {
 
 void PassiveSniffer::start() {
     char errbuf[PCAP_ERRBUF_SIZE];
-    m_handle = pcap_open_live(m_iface.toLocal8Bit().constData(), 65535, 1, 100, errbuf);
+    m_handle = pcap_create(m_iface.toLocal8Bit().constData(), errbuf);
     if (!m_handle) {
-        emit snifferError(QString("pcap_open_live failed: %1").arg(errbuf));
+        emit snifferError(QString("pcap_create failed: %1").arg(errbuf));
         return;
     }
 
-    // BPF filter
-    // BPF filter: Capture ARP, TCP, and common discovery UDP traffic
-    const char *filter_str = "arp or tcp or (udp and (port 5353 or port 1900 or port 137 or port 53))";
+    // Set configuration
+    pcap_set_snaplen(m_handle, 65535);
+    pcap_set_promisc(m_handle, 1);
+    pcap_set_timeout(m_handle, 100);
+    
+    // [CRITICAL FIX] Increase capture buffer size to 32MB to prevent the kernel 
+    // from dropping packets during high-speed local downloads (gigabit+ Wi-Fi)
+    pcap_set_buffer_size(m_handle, 32 * 1024 * 1024);
+
+    int status = pcap_activate(m_handle);
+    if (status != 0) {
+        emit snifferError(QString("pcap_activate failed: %1").arg(pcap_geterr(m_handle)));
+        pcap_close(m_handle);
+        m_handle = nullptr;
+        return;
+    }
+
+    // BPF filter: Capture ALL IPv4 and ARP traffic for genuine bandwidth metrics
+    const char *filter_str = "ip or arp";
     struct bpf_program fp;
     if (pcap_compile(m_handle, &fp, filter_str, 1, PCAP_NETMASK_UNKNOWN) == -1) {
         emit snifferError(QString("pcap_compile failed: %1").arg(pcap_geterr(m_handle)));
@@ -180,41 +197,35 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         m_allDevices.insert(d.ip(), d);
     }
 
-    // Load persisted blacklist and whitelist
-    // (Actual syncing happens in startScanning once we have the interface)
-
-    // Traffic Monitor
+    // Traffic Monitor — safe to create early, doesn't touch the network
     m_trafficMonitor = new TrafficMonitor();
     connect(m_trafficMonitor, &TrafficMonitor::trafficUpdated, this, &NetworkManager::onTrafficUpdated);
-    connect(m_trafficMonitor, &TrafficMonitor::globalStats, this, &NetworkManager::onGlobalStats);
+    connect(m_trafficMonitor, &TrafficMonitor::globalStats,    this, &NetworkManager::onGlobalStats);
 
-    // Firewall
-    m_firewallManager = new FirewallManager(getActiveInterface(), this);
+    // Firewall — created but NOT initialized yet (no nftables rules written)
+    m_firewallManager = new FirewallManager("", this);
     connect(m_firewallManager, &FirewallManager::firewallError, this, &NetworkManager::scanError);
 
-    // DHCP
+    // DHCP Manager — safe to create early, no server started
     m_dhcpManager = new DHCPManager(this);
-    connect(m_dhcpManager, &DHCPManager::dhcpError, this, &NetworkManager::dhcpOperationError);
-    connect(m_dhcpManager, &DHCPManager::operationSuccess, this, &NetworkManager::dhcpOperationSuccess);
+    connect(m_dhcpManager, &DHCPManager::dhcpError,         this, &NetworkManager::dhcpOperationError);
+    connect(m_dhcpManager, &DHCPManager::operationSuccess,  this, &NetworkManager::dhcpOperationSuccess);
     connect(m_dhcpManager, &DHCPManager::dhcpStatusChanged, this, [this](bool active) {
         emit dhcpStatusUpdate(active);
     });
     connect(m_dhcpManager, &DHCPManager::logEvent, this, [this](const QString &msg) {
-        // Log DHCP events to the event system — do NOT trigger blockDevice here,
-        // blockDevice() is what calls dhcpManager->blockMAC() in the first place.
-        // Doing it here caused an infinite recursive loop.
         logEvent(core::NetworkEvent::Info, msg);
-    }, Qt::QueuedConnection); // QueuedConnection for thread-safety
+    }, Qt::QueuedConnection);
 
     connect(m_dhcpManager, &DHCPManager::leaseDiscovered, this, [this](const core::DHCPLease &lease) {
+        if (lease.hostname == "(pending)") return; // skip tentative offers; wait for ACK
         Device d;
         d.setIp(lease.ip);
         d.setMac(lease.mac);
-        d.setHostname(lease.hostname);
+        d.setHostname(lease.hostname.isEmpty() ? lease.ip : lease.hostname);
         d.setVendor(getMacVendor(lease.mac));
-        addDiscoveredDevice(d);
-        
-        // Sync with firewall (Source Guard)
+        d.setStatus("Online");
+        addDiscoveredDevice(d, /*fromDhcp=*/true);
         m_firewallManager->addAllowedLease(lease.ip, lease.mac);
     }, Qt::QueuedConnection);
 
@@ -223,21 +234,7 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         logEvent(core::NetworkEvent::Info, QString("Lease expired for %1 (%2) — removed from firewall").arg(ip, mac), ip);
     }, Qt::QueuedConnection);
 
-
-    // Passive Sniffer
-    QString iface = getActiveInterface();
-    if (!iface.isEmpty()) {
-        m_sniffer = new PassiveSniffer(iface);
-        m_snifferThread = new QThread(this);
-        m_sniffer->moveToThread(m_snifferThread);
-        connect(m_snifferThread, &QThread::started, m_sniffer, &PassiveSniffer::start);
-        connect(m_sniffer, &PassiveSniffer::deviceSeen, this, &NetworkManager::onDeviceSeen, Qt::QueuedConnection);
-        connect(m_sniffer, &PassiveSniffer::snifferError, this, &NetworkManager::scanError, Qt::QueuedConnection);
-        connect(m_snifferThread, &QThread::finished, m_sniffer, &QObject::deleteLater);
-        m_snifferThread->start();
-    }
-
-    // Captive Portal
+    // Captive Portal — safe to create early
     m_captivePortal = new CaptivePortalManager(this);
     connect(m_captivePortal, &CaptivePortalManager::deviceStateChanged, this, [this](const QString &mac, bool enabled) {
         if (enabled && isDeviceBlocked(mac)) {
@@ -247,11 +244,54 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         }
     });
 
-    // Cleanup timer (run every minute to check for devices seen > 5m ago)
-    m_cleanupTimer = new QTimer(this);
-    connect(m_cleanupTimer, &QTimer::timeout, this, &NetworkManager::cleanUpStaleDevices);
-    m_cleanupTimer->start(60000);
+    // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
+    // to activate() which is called only after the startup wizard completes.
+    // This prevents any scan/firewall activity while the wizard is open.
 }
+
+void NetworkManager::activate() {
+    QString iface = getActiveInterface();
+
+    // Initialize the firewall now that we know the interface
+    m_firewallManager->setInterface(iface);
+
+    // Sync persisted blacklist/whitelist
+    QList<Device> historicalDevices = DatabaseManager::instance().getAllDevices();
+    for (const Device &d : historicalDevices) {
+        QString lMac = d.mac().toLower();
+        if (DatabaseManager::instance().isBlacklisted(lMac)) {
+            m_firewallManager->blockMAC(lMac);
+            m_dhcpManager->blockMAC(lMac);
+        }
+        if (DatabaseManager::instance().isWhitelisted(lMac)) {
+            m_firewallManager->addWhitelistedMAC(lMac);
+            m_dhcpManager->addWhitelistedMAC(lMac);
+        }
+    }
+
+    // Start passive sniffer
+    if (!iface.isEmpty() && !m_sniffer) {
+        m_sniffer       = new PassiveSniffer(iface);
+        m_snifferThread = new QThread(this);
+        m_sniffer->moveToThread(m_snifferThread);
+        connect(m_snifferThread, &QThread::started,  m_sniffer, &PassiveSniffer::start);
+        connect(m_sniffer, &PassiveSniffer::deviceSeen,   this, &NetworkManager::onDeviceSeen,   Qt::QueuedConnection);
+        connect(m_sniffer, &PassiveSniffer::snifferError, this, &NetworkManager::scanError,       Qt::QueuedConnection);
+        connect(m_snifferThread, &QThread::finished, m_sniffer, &QObject::deleteLater);
+        m_snifferThread->start();
+    }
+
+    // Start cleanup timer
+    if (!m_cleanupTimer) {
+        m_cleanupTimer = new QTimer(this);
+        connect(m_cleanupTimer, &QTimer::timeout, this, &NetworkManager::cleanUpStaleDevices);
+        m_cleanupTimer->start(60000);
+    }
+
+    qDebug() << "[NetworkManager] Activated on interface" << iface;
+    runScan();
+}
+
 
 NetworkManager::~NetworkManager() {
     if (m_snifferThread) {
@@ -428,6 +468,26 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
     Q_UNUSED(iface)
     QMutexLocker lk(&m_resultsMutex);
     
+    Device existingDev;
+    bool moved = false;
+    
+    // Check if this MAC already exists under a DIFFERENT IP (device moved IPs)
+    if (!mac.isEmpty() && mac != "00:00:00:00:00:00") {
+        QString oldIp;
+        for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
+            if (it.value().mac() == mac && it.key() != ip) {
+                oldIp = it.key();
+                break;
+            }
+        }
+        if (!oldIp.isEmpty()) {
+            existingDev = m_allDevices[oldIp];
+            DatabaseManager::instance().removeDevice(oldIp);
+            m_allDevices.remove(oldIp);
+            moved = true;
+        }
+    }
+
     if (m_allDevices.contains(ip)) {
         Device &d = m_allDevices[ip];
         if (!mac.isEmpty() && mac != "00:00:00:00:00:00" && d.mac() != mac) {
@@ -449,10 +509,12 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
         DatabaseManager::instance().saveDevice(d);
     } else {
         if (!mac.isEmpty() && mac != "00:00:00:00:00:00") {
-            Device d;
+            Device d = moved ? existingDev : Device();
             d.setIp(ip);
             d.setMac(mac);
-            d.setVendor(getMacVendor(mac));
+            if (!moved || d.vendor().isEmpty()) {
+                d.setVendor(getMacVendor(mac));
+            }
             bool blocked = DatabaseManager::instance().isBlacklisted(mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(mac));
             d.setStatus(blocked ? "Blocked" : "Online");
             m_allDevices.insert(ip, d);
@@ -472,47 +534,94 @@ void NetworkManager::cleanUpStaleDevices() {
 
     auto it = m_allDevices.begin();
     while (it != m_allDevices.end()) {
+        QString hostIpStr = QHostAddress(m_myIpAddr).toString();
+        
         qint64 diff = it.value().lastSeen().secsTo(now);
-        // [FIX] NEVER evict blocked devices. They stop sending traffic so they 
-        // will naturally go stale, but we MUST keep them to maintain the block.
-        if (diff > 300 && it.value().status() != "Blocked") { // 5 minutes
-            logEvent(NetworkEvent::Info, QString("Device %1 timed out and removed").arg(it.value().ip()), it.value().ip());
-            it = m_allDevices.erase(it);
-            changed = true;
-        } else {
-            // Also mark as offline if not seen in last 30 seconds
-            if (diff > 30) {
-                if (it.value().status().toLower() == "online") {
-                    it.value().setStatus("Offline");
-                    changed = true;
-                }
+        if (diff > 30) {
+            // Uniquely spare the Host device from ever reporting Offline.
+            if (it.value().status().toLower() == "online" && it.value().status() != "Blocked" && it.key() != hostIpStr) {
+                it.value().setStatus("Offline");
+                changed = true;
             }
-            ++it;
         }
+        ++it;
     }
     
     if (changed) emit devicesUpdated(m_allDevices.values());
 }
 
-void NetworkManager::addDiscoveredDevice(const Device &dev) {
+void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
     QMutexLocker lk(&m_resultsMutex);
-    bool isBlocked = DatabaseManager::instance().isBlacklisted(dev.mac()) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(dev.mac()));
-    QString properStatus = isBlocked ? "Blocked" : dev.status();
+    bool isBlocked = DatabaseManager::instance().isBlacklisted(dev.mac())
+                  || (m_strictMode && !DatabaseManager::instance().isWhitelisted(dev.mac()));
+    QString properStatus = isBlocked ? "Blocked" : (fromDhcp ? "Online" : dev.status());
+
+    Device existingDev;
+    bool moved = false;
+
+    // Clean up ghosts: if this MAC exists on a different IP, delete the old IP entry
+    if (!dev.mac().isEmpty() && dev.mac() != "00:00:00:00:00:00") {
+        QString oldIp;
+        for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
+            if (it.value().mac() == dev.mac() && it.key() != dev.ip()) {
+                oldIp = it.key();
+                break;
+            }
+        }
+        if (!oldIp.isEmpty()) {
+            existingDev = m_allDevices[oldIp];
+            DatabaseManager::instance().removeDevice(oldIp);
+            m_allDevices.remove(oldIp);
+            moved = true;
+        }
+    }
 
     if (m_allDevices.contains(dev.ip())) {
         Device &d = m_allDevices[dev.ip()];
-        if (!dev.hostname().isEmpty() && dev.hostname() != "Unknown")
-            d.setHostname(dev.hostname());
-        if (!properStatus.isEmpty())
+        bool isHost = (d.mac() == m_myMac || dev.ip() == QHostAddress(m_myIpAddr).toString());
+        
+        // DHCP is authoritative: always update MAC and hostname when a lease is issued.
+        // For ARP/passive discoveries, only update if we have better data.
+        if (fromDhcp) {
+            if (!dev.mac().isEmpty())     d.setMac(dev.mac());
+            if (!dev.hostname().isEmpty() && !isHost) d.setHostname(dev.hostname()); // Protect Hostname
+            if (!dev.vendor().isEmpty() && !isHost)  d.setVendor(dev.vendor());
+        } else {
+            if (!dev.hostname().isEmpty() && dev.hostname() != "Unknown" && !isHost)
+                d.setHostname(dev.hostname());
+        }
+        
+        // Ensure Host strictly retains its special visual tag.
+        if (isHost) {
+            d.setStatus("Online (Self)");
+            if (d.hostname() == "Unknown" || d.hostname() == "localhost") d.setHostname(QHostInfo::localHostName());
+            d.setVendor("This Device (Host)");
+        } else if (!properStatus.isEmpty()) {
             d.setStatus(properStatus);
+        }
+        
         d.setLastSeen(QDateTime::currentDateTime());
         DatabaseManager::instance().saveDevice(d);
     } else {
-        Device newDev = dev;
-        if (!properStatus.isEmpty())
-            newDev.setStatus(properStatus);
+        Device newDev = moved ? existingDev : dev;
+        newDev.setIp(dev.ip());
+        newDev.setMac(dev.mac());
+        // For moves or fresh devices, bring over new info if it exists
+        if (!dev.hostname().isEmpty() && dev.hostname() != "Unknown")
+            newDev.setHostname(dev.hostname());
+        if (!dev.vendor().isEmpty())
+            newDev.setVendor(dev.vendor());
+            
+        if (!properStatus.isEmpty()) newDev.setStatus(properStatus);
+        newDev.setLastSeen(QDateTime::currentDateTime());
         m_allDevices.insert(newDev.ip(), newDev);
         DatabaseManager::instance().saveDevice(newDev);
+        
+        if (!moved) {
+            QString methodStr = fromDhcp ? "via DHCP: " : "";
+            logEvent(NetworkEvent::Discovery, QString("New device discovered %1%2 (%3)"
+                     ).arg(methodStr, newDev.ip(), newDev.hostname()), newDev.ip());
+        }
     }
     emit devicesUpdated(m_allDevices.values());
 }
@@ -940,7 +1049,7 @@ void NetworkManager::runScan() {
     self.setIp(myAddress.toString());
     self.setMac(m_myMac);
     self.setVendor("This Device (Host)");
-    self.setHostname("localhost");
+    self.setHostname(QHostInfo::localHostName());
     self.setStatus("Online (Self)");
     addDiscoveredDevice(self);
     m_confirmedIps.insert(myAddress.toString());
@@ -948,7 +1057,6 @@ void NetworkManager::runScan() {
     // Gateway placeholder & Resolution
     if (!m_gatewayIp.isEmpty()) {
         if (m_gatewayMac.isEmpty() || m_gatewayMac == "Checking...") {
-            qDebug() << "[NetworkManager] Initial attempt to resolve gateway:" << m_gatewayIp;
             int sock = openArpSocket(iface);
             if (sock >= 0) {
                 sendRawArpRequest(sock, iface, m_myMac, myAddress.toString(), m_gatewayIp);

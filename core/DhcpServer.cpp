@@ -101,10 +101,16 @@ void DhcpServer::stop() {
 QList<DHCPLease> DhcpServer::getActiveLeases() {
     QMutexLocker locker(&m_leaseMutex);
     QList<DHCPLease> active;
-    QDateTime now = QDateTime::currentDateTime();
-    for (auto it = m_leases.begin(); it != m_leases.end(); ++it)
-        if (it.value().expiry > now)
-            active.append(it.value());
+    // Show a lease as active for up to 2 minutes past its expiry.
+    // This prevents leases from flickering out of the UI while the device
+    // is still physically connected and about to renew.
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-120);
+    for (auto it = m_leases.begin(); it != m_leases.end(); ++it) {
+        const DHCPLease &l = it.value();
+        if (l.hostname == "(pending)") continue; // don't show pending offers
+        if (l.expiry > cutoff)                    // active OR recently expired
+            active.append(l);
+    }
     return active;
 }
 
@@ -570,7 +576,7 @@ void DhcpServer::sendOffer(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     }
 
     QMutexLocker locker(&m_leaseMutex);
-    QString offeredIpStr = allocateIP(clientMac);
+    QString offeredIpStr = allocateIP(clientMac, requestedIp);
 
     // Store a *pending* lease for this MAC so that when the client sends its
     // REQUEST, allocateIP() finds the same IP and returns it — not the next one.
@@ -670,10 +676,8 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
         if (m_config.authoritative) {
             qDebug() << "[DHCP] Authoritative NAK: client requested another server ("
                      << QHostAddress(ntohl(clientSelectedServer)).toString()
-                     << ") — NAKing and sending fresh OFFER";
+                     << ") — NAKing";
             sendNak(req, clientMacL2);
-            // Immediately offer our own IP so the client can re-select us
-            sendOffer(req, reqOpts, optsLen, clientMacL2);
         } else {
             qDebug() << "[DHCP] REQUEST is for another server — ignoring";
         }
@@ -681,7 +685,45 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     }
 
     QMutexLocker locker(&m_leaseMutex);
-    QString ackedIpStr = allocateIP(clientMac);
+    
+    uint32_t reqIpInt = 0;
+    if (clientSelectedServer == 0) {
+        if (requestedIpNet != 0) {
+            reqIpInt = ntohl(requestedIpNet);
+        } else if (req->ciaddr != 0) {
+            reqIpInt = ntohl(req->ciaddr);
+        }
+    }
+    
+    QString ackedIpStr = allocateIP(clientMac, reqIpInt);
+    uint32_t ackedIpNet = htonl(QHostAddress(ackedIpStr).toIPv4Address());
+
+    // Check if client is trying to reuse an old IP or renew its current IP (Option 50 or ciaddr)
+    // If they are asking for an IP that doesn't match what we want to give them, we MUST NAK them
+    // so they fall back to DISCOVER. If we blindly ACK with a different IP, they will decline it.
+    if (clientSelectedServer == 0) {
+        if (requestedIpNet != 0) {
+            if (requestedIpNet != ackedIpNet) {
+                locker.unlock();
+                if (m_config.authoritative) {
+                    qDebug() << "[DHCP] Authoritative NAK: client requested wrong IP ("
+                             << QHostAddress(ntohl(requestedIpNet)).toString() << ")";
+                    sendNak(req, clientMacL2);
+                }
+                return;
+            }
+        } else if (req->ciaddr != 0) {
+            if (req->ciaddr != ackedIpNet) {
+                locker.unlock();
+                if (m_config.authoritative) {
+                    qDebug() << "[DHCP] Authoritative NAK: client ciaddr ("
+                             << QHostAddress(ntohl(req->ciaddr)).toString() << ") doesn't match";
+                    sendNak(req, clientMacL2);
+                }
+                return;
+            }
+        }
+    }
 
     // Register / update lease
     DHCPLease lease;
@@ -701,7 +743,6 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
 
     locker.unlock();
 
-    uint32_t ackedIpNet    = htonl(QHostAddress(ackedIpStr).toIPv4Address());
     uint32_t subnetMaskNet = htonl(QHostAddress(m_config.subnetMask).toIPv4Address());
     
     uint32_t routerNet = htonl(QHostAddress(m_config.routerIp).toIPv4Address());
@@ -889,17 +930,46 @@ void DhcpServer::sendRawDhcpReply(const uint8_t *dstMac, uint32_t dstIp,
 
 /**
  * Allocate or return an existing (non-expired) lease IP for @p mac.
+ * If @p requestedIp is provided (host byte order) and is free and within 
+ * the pool range, it will be granted.
  * MUST be called with m_leaseMutex held.
  */
-QString DhcpServer::allocateIP(const QString &mac) {
-    // Return existing lease (prioritize even if expired for blocked MACs to be 'sticky')
+QString DhcpServer::allocateIP(const QString &mac, uint32_t requestedIp) {
+    QDateTime now = QDateTime::currentDateTime();
+
+    // 1. Client already has a lease (active or recently expired) — return the
+    //    same IP so reconnecting clients keep their address. We only do this if
+    //    no OTHER client now holds that IP with an active lease.
     if (m_leases.contains(mac)) {
-        const DHCPLease &l = m_leases[mac];
-        if (l.expiry > QDateTime::currentDateTime() || m_blockedMACs.contains(mac.toLower()))
-            return l.ip;
+        const DHCPLease &existing = m_leases[mac];
+        bool ipStillFree = true;
+        for (auto it = m_leases.constBegin(); it != m_leases.constEnd(); ++it) {
+            if (it.key() == mac) continue;
+            if (it.value().ip == existing.ip && it.value().expiry > now) {
+                ipStillFree = false;
+                break;
+            }
+        }
+        if (ipStillFree) return existing.ip;
     }
 
-    // Walk through the pool linearly, skipping IPs that are already in use.
+    // 2. Client is explicitly requesting an IP (reconnect / INIT-REBOOT)
+    // If the IP is within our pool and not strictly held by someone else, grant it.
+    if (requestedIp != 0 && requestedIp >= m_rangeStartInt && requestedIp <= m_rangeEndInt) {
+        QString reqIpStr = QHostAddress(requestedIp).toString();
+        bool ipStillFree = true;
+        for (auto it = m_leases.constBegin(); it != m_leases.constEnd(); ++it) {
+            if (it.key() == mac) continue;
+            if (it.value().ip == reqIpStr && it.value().expiry > now) {
+                ipStillFree = false;
+                break;
+            }
+        }
+        if (ipStillFree) return reqIpStr;
+    }
+
+    // 3. No prior lease (or its old IP was stolen) — walk the pool and pick the
+    //    first address not held by an active lease.
     uint32_t total = m_rangeEndInt - m_rangeStartInt + 1;
     for (uint32_t i = 0; i < total; ++i) {
         uint32_t candidate = m_rangeStartInt + ((m_currentIpOffset + i) % total);
@@ -907,7 +977,7 @@ QString DhcpServer::allocateIP(const QString &mac) {
 
         bool inUse = false;
         for (const DHCPLease &l : std::as_const(m_leases)) {
-            if (l.ip == candidateStr && l.expiry > QDateTime::currentDateTime()) {
+            if (l.ip == candidateStr && l.expiry > now) {
                 inUse = true;
                 break;
             }
@@ -918,7 +988,7 @@ QString DhcpServer::allocateIP(const QString &mac) {
         }
     }
 
-    // Pool exhausted — return start (server will NAK on a real deployment)
+    // Pool exhausted — return start as fallback
     qWarning() << "[DHCP] IP pool exhausted!";
     return QHostAddress(m_rangeStartInt).toString();
 }

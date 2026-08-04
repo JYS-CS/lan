@@ -24,6 +24,7 @@ public:
 
     // Device persistence
     void saveDevice(const Device &d);
+    void removeDevice(const QString &ip);
     QList<Device> getAllDevices();
     void updateAlias(const QString &mac, const QString &alias);
 

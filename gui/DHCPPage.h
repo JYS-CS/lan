@@ -89,8 +89,9 @@ private:
     QLabel       *m_feedbackLabel      = nullptr;
 
     QTimer *m_leaseTimer  = nullptr;
-    bool    m_serverActive = false;
+    bool    m_serverActive  = false;
     bool    m_interceptMode = false;   // true = clients route through laptop
+    int     m_prevIpForward = -1;      // kernel ip_forward value before we changed it (-1 = not set by us)
 };
 
 } // namespace gui

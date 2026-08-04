@@ -14,7 +14,8 @@ namespace core {
 TrafficMonitor::TrafficMonitor(QObject *parent) : QObject(parent) {
     m_statsTimer = new QTimer(this);
     connect(m_statsTimer, &QTimer::timeout, this, &TrafficMonitor::calculateRates);
-    m_statsTimer->start(1000); // 1Hz update
+    m_statsTimer->start(100); // 10Hz hyper-fast proactive UI update
+    m_elapsedTimer.start();
 }
 
 void TrafficMonitor::setHostIdentity(const QString &mac, quint32 ip) {
@@ -28,7 +29,6 @@ void TrafficMonitor::setHostIdentity(const QString &mac, quint32 ip) {
 void TrafficMonitor::processPacket(const unsigned char* pkt, int len) {
     if (len < (int)sizeof(struct ether_header)) return;
 
-    std::lock_guard<std::mutex> lock(m_mutex);
     m_packetCount++;
 
     struct ether_header *eth = (struct ether_header *)pkt;
@@ -67,6 +67,9 @@ void TrafficMonitor::processPacket(const unsigned char* pkt, int len) {
     bool isSrcLocal = isLocal(saddr);
     bool isDstLocal = isLocal(daddr);
 
+    // Enter critical section ONLY for updating stats dictionary
+    std::lock_guard<std::mutex> lock(m_mutex);
+
     // [UPLOAD] Client -> Laptop
     if (dstMac == m_hostMac && isSrcLocal && saddr != m_hostIp) {
         m_deviceStats[srcIP].totalBytesUp += size;
@@ -78,11 +81,11 @@ void TrafficMonitor::processPacket(const unsigned char* pkt, int len) {
         m_totalInbound += size; // Global import
     }
     // [HOST OWN TRAFFIC] If laptop is talker (not forward)
-    else if (saddr == m_hostIp && !isDstLocal) {
+    else if (saddr == m_hostIp) {
         m_deviceStats[srcIP].totalBytesUp += size;
         m_totalOutbound += size;
     }
-    else if (daddr == m_hostIp && !isSrcLocal) {
+    else if (daddr == m_hostIp) {
         m_deviceStats[dstIP].totalBytesDown += size;
         m_totalInbound += size;
     }
@@ -103,19 +106,28 @@ void TrafficMonitor::setLocalNetwork(quint32 ip, quint32 mask) {
 void TrafficMonitor::calculateRates() {
     std::lock_guard<std::mutex> lock(m_mutex);
     
+    qint64 elapsedMs = m_elapsedTimer.restart();
+    if (elapsedMs == 0) elapsedMs = 1; // Prevent division by zero mathematically
+    double multiplier = 1000.0 / static_cast<double>(elapsedMs);
+
     for (auto it = m_deviceStats.begin(); it != m_deviceStats.end(); ++it) {
         TrafficStats &stats = it.value();
-        stats.currentRateUp = stats.totalBytesUp - stats.lastSnapUp;
-        stats.currentRateDown = stats.totalBytesDown - stats.lastSnapDown;
+        
+        // Dynamically scale delta math to normalize strictly over 1 real-world second
+        stats.currentRateUp = static_cast<quint64>((stats.totalBytesUp - stats.lastSnapUp) * multiplier);
+        stats.currentRateDown = static_cast<quint64>((stats.totalBytesDown - stats.lastSnapDown) * multiplier);
+        
         stats.lastSnapUp = stats.totalBytesUp;
         stats.lastSnapDown = stats.totalBytesDown;
     }
     
     emit trafficUpdated(m_deviceStats);
     
-    int currentBatch = m_packetCount - m_lastPacketCount;
-    emit globalStats(m_packetCount, static_cast<double>(currentBatch), m_totalInbound, m_totalOutbound);
-    m_lastPacketCount = m_packetCount;
+    int currentBatch = m_packetCount.load() - m_lastPacketCount;
+    double pps = (currentBatch * 1000.0) / static_cast<double>(elapsedMs);
+    
+    emit globalStats(m_packetCount.load(), pps, m_totalInbound, m_totalOutbound);
+    m_lastPacketCount = m_packetCount.load();
 }
 
 void TrafficMonitor::resetStats() {

@@ -38,7 +38,6 @@ void FirewallManager::initFirewall() {
 
     // 2. Netdev table for low-level interface monitoring (ingress only, no drops)
     if (!m_interface.isEmpty()) {
-        qDebug() << "FirewallManager: Initializing Netdev table for device:" << m_interface;
         runNft({"add", "table", "netdev", m_tableName + "_layer2"});
         runNft({"add", "chain", "netdev", m_tableName + "_layer2", "ingress",
                 "{ type filter hook ingress device \"" + m_interface + "\" priority -500; }"});
@@ -59,7 +58,7 @@ void FirewallManager::initFirewall() {
     syncWhitelistedMACs();
     syncAllowedLeases();
 
-    qDebug() << "FirewallManager: Initialized nftables [Monitor Mode].";
+    qInfo() << "[FirewallManager] Ready on interface" << (m_interface.isEmpty() ? "(none)" : m_interface);
 }
 
 bool FirewallManager::blockIP(const QString &ip) {
@@ -90,7 +89,7 @@ void FirewallManager::setInterface(const QString &iface) {
 void FirewallManager::setServerIP(const QString &ip) {
     if (m_serverIP == ip) return;
     m_serverIP = ip;
-    qDebug() << "FirewallManager: Server IP updated to" << ip;
+    // Internal host IP used for nftables rules — not a DHCP server address
 }
 
 bool FirewallManager::unblockMAC(const QString &mac) {

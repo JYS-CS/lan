@@ -2,6 +2,7 @@
 #include "DhcpServer.h"
 #include <QDebug>
 #include <QHostAddress>
+#include <QProcess>
 
 namespace core {
 
@@ -28,6 +29,22 @@ bool DHCPManager::startServer() {
     connect(m_dhcpThread, &DhcpServer::leaseExpired, this, &DHCPManager::leaseExpired);
     m_dhcpThread->start();
 
+    // ── Prevent the host from accepting its own DHCP broadcast replies ───────
+    // We use a single nftables input rule to drop UDP/68 packets before they
+    // reach NetworkManager's DHCP client socket. This is enough — we do NOT
+    // unmanage the interface via nmcli, which would strip its IP configuration
+    // and kill the laptop's own internet connectivity.
+    if (!m_config.interface.isEmpty()) {
+        QProcess::execute("sh", {"-c",
+            "nft add table inet lan_dhcp_guard 2>/dev/null; "
+            "nft add chain inet lan_dhcp_guard input "
+            "  '{ type filter hook input priority -1; policy accept; }' 2>/dev/null; "
+            "nft add rule inet lan_dhcp_guard input "
+            "  udp dport 68 drop 2>/dev/null"
+        });
+        qDebug() << "[DHCP] nftables guard installed: blocking inbound UDP/68 to host";
+    }
+
     m_isRunning = true;
     emit dhcpStatusChanged(true);
     emit operationSuccess("DHCP server started");
@@ -47,6 +64,10 @@ bool DHCPManager::stopServer() {
         m_dhcpThread->deleteLater();
         m_dhcpThread = nullptr;
     }
+
+    // ── Remove the host-protection nftables guard table ──────────────────────
+    QProcess::execute("sh", {"-c", "nft delete table inet lan_dhcp_guard 2>/dev/null"});
+    qDebug() << "[DHCP] nftables guard removed";
 
     m_isRunning = false;
     emit dhcpStatusChanged(false);

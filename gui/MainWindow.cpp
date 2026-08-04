@@ -61,10 +61,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         dialog->show();
     });
 
-    // Auto-Refresh Timer
+    // Auto-Refresh Timer — created here but NOT started yet.
+    // It starts inside the mode-selection lambdas below, so nothing
+    // fires while the startup wizard is still open.
     m_refreshTimer = new QTimer(this);
     connect(m_refreshTimer, &QTimer::timeout, this, &MainWindow::onRefreshRequested);
-    m_refreshTimer->start(10000);
 
     // Don't auto-scan yet; wait until mode is selected
 }
@@ -75,25 +76,30 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
-    // Ensure we fully clean up before the process exits so that:
-    // 1. nftables blocking rules don't survive in the kernel
-    // 2. Client devices aren't left pointing at us as gateway/DNS
-    qDebug() << "[MainWindow] Clean shutdown — flushing nftables and stopping DHCP...";
+    qDebug() << "[MainWindow] Clean shutdown — flushing all rules and stopping DHCP...";
 
-    // Stop DHCP first so no more leases are handed out
+    // Stop DHCP server (also removes guard table + scoped NAT via DHCPManager/DHCPPage)
     QMetaObject::invokeMethod(m_networkManager, "stopDHCPServer", Qt::BlockingQueuedConnection);
 
-    // Flush all nftables rules we created — this is blocking and safe here
-    QProcess::execute("sh", {"-c", "nft delete table inet lan_monitor 2>/dev/null"});
-    QProcess::execute("sh", {"-c", "nft delete table netdev lan_monitor_layer2 2>/dev/null"});
-    QProcess::execute("sh", {"-c", "nft delete table ip lan_monitor_nat 2>/dev/null"});
+    // ── Hard-flush every nftables table we may have created ─────────────────
+    // All commands use 2>/dev/null so they are silent no-ops when the table
+    // doesn't exist (i.e. DHCP was never started, or already cleaned up).
+    const QStringList flushCmds = {
+        "nft delete table inet lan_monitor 2>/dev/null",
+        "nft delete table netdev lan_monitor_layer2 2>/dev/null",
+        "nft delete table ip lan_monitor_nat 2>/dev/null",
+        "nft delete table inet lan_dhcp_guard 2>/dev/null",
+    };
+    for (const QString &cmd : flushCmds)
+        QProcess::execute("sh", {"-c", cmd});
 
-    // Flush our own ARP cache so the OS doesn't keep routing through stale entries
+    // ── Flush stale ARP entries ──────────────────────────────────────────────
     QProcess::execute("sh", {"-c", "ip neigh flush all 2>/dev/null"});
 
     qDebug() << "[MainWindow] Cleanup complete.";
     QMainWindow::closeEvent(event);
 }
+
 
 void MainWindow::setupUI() {
     setupToolBar();
@@ -133,8 +139,9 @@ void MainWindow::setupUI() {
         statusBar()->setVisible(true);
         m_centralStacked->setCurrentIndex(1); // Devices
         if (m_navGroup->button(1)) m_navGroup->button(1)->setChecked(true);
-        // Start first scan now
-        onRefreshRequested();
+        // Activate NetworkManager (starts sniffer, firewall, timers) then begin scanning
+        QMetaObject::invokeMethod(m_networkManager, "activate", Qt::QueuedConnection);
+        m_refreshTimer->start(10000);
     });
 
     connect(startupPage, &StartupModePage::dhcpWizardCompleted, this, [this](const gui::DhcpWizardSettings &settings) {
@@ -143,8 +150,9 @@ void MainWindow::setupUI() {
         m_dhcpPage->applyWizardSettingsAndStart(settings);
         m_centralStacked->setCurrentIndex(3); // DHCP
         if (m_navGroup->button(3)) m_navGroup->button(3)->setChecked(true);
-        // Start first scan now
-        onRefreshRequested();
+        // Activate NetworkManager (starts sniffer, firewall, timers) then begin scanning
+        QMetaObject::invokeMethod(m_networkManager, "activate", Qt::QueuedConnection);
+        m_refreshTimer->start(10000);
     });
 }
 
@@ -248,23 +256,7 @@ void MainWindow::setupToolBar() {
     
     hLayout->addWidget(createDivider());
 
-    QPushButton *refreshBtn = new QPushButton(QIcon(":/resources/refresh.svg"), "", this);
-    refreshBtn->setFixedSize(26, 26);
-    refreshBtn->setIconSize(QSize(16, 16));
-    refreshBtn->setFlat(true);
-    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::onRefreshRequested);
-    hLayout->addWidget(refreshBtn);
 
-    QPushButton *settingsBtn = new QPushButton(QIcon(":/resources/settings.svg"), "", this);
-    settingsBtn->setFixedSize(26, 26);
-    settingsBtn->setIconSize(QSize(16, 16));
-    settingsBtn->setFlat(true);
-    hLayout->addWidget(settingsBtn);
-
-    QPushButton *scanNow = new QPushButton("Scan now", this);
-    scanNow->setObjectName("ScanBtn");
-    connect(scanNow, &QPushButton::clicked, this, &MainWindow::onRefreshRequested);
-    hLayout->addWidget(scanNow);
 
     // Apply Global Toolbar Style
     m_customToolBar->setStyleSheet(

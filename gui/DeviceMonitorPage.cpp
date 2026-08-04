@@ -13,8 +13,6 @@ DeviceMonitorPage::DeviceMonitorPage(core::NetworkManager *networkManager, QWidg
     
     connect(m_deviceTable, &DeviceTable::deviceSelected, this, &DeviceMonitorPage::onSelectionChanged);
     connect(m_searchEdit, &QLineEdit::textChanged, this, &DeviceMonitorPage::onSearchChanged);
-    connect(m_refreshBtn, &QPushButton::clicked, this, &DeviceMonitorPage::onRefreshRequested);
-    connect(m_exportBtn, &QPushButton::clicked, this, &DeviceMonitorPage::onExportRequested);
     
     // (device actions are wired through MainWindow)
 
@@ -76,15 +74,7 @@ void DeviceMonitorPage::setupUi() {
     
     hLayout->addSpacing(10);
 
-    // Action Buttons
-    m_refreshBtn = new QPushButton("Refresh", this);
-    m_refreshBtn->setObjectName("GhostBtn");
-    
-    m_exportBtn = new QPushButton("Export CSV", this);
-    m_exportBtn->setObjectName("PrimaryBtn");
-    
-    hLayout->addWidget(m_refreshBtn);
-    hLayout->addWidget(m_exportBtn);
+
     
     mainLayout->addWidget(actionBar);
 

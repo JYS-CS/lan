@@ -142,7 +142,7 @@ private:
 
     // Helpers
     QString   macToString(const uint8_t *mac);
-    QString   allocateIP(const QString &mac);
+    QString   allocateIP(const QString &mac, uint32_t requestedIp = 0);
     uint8_t   getOption(uint8_t *options, ssize_t optionsLen, uint8_t code,
                         uint8_t *outVal = nullptr, size_t maxValLen = 0);
     uint16_t  ipChecksum(const void *data, size_t len);

@@ -16,10 +16,27 @@ void PacketCapture::startCapture() {
     if (m_running) return;
 
     char errbuf[PCAP_ERRBUF_SIZE];
-    m_handle = pcap_open_live(m_interface.toUtf8().constData(), BUFSIZ, 1, 1000, errbuf);
+    m_handle = pcap_create(m_interface.toUtf8().constData(), errbuf);
     
     if (!m_handle) {
-        emit captureError(QString("pcap Error: %1").arg(errbuf));
+        emit captureError(QString("pcap_create Error: %1").arg(errbuf));
+        return;
+    }
+
+    // Set configuration
+    pcap_set_snaplen(m_handle, 65535);
+    pcap_set_promisc(m_handle, 1);
+    pcap_set_timeout(m_handle, 10); // low latency chunking
+    
+    // [CRITICAL FIX] Increase capture buffer size to 32MB to prevent the kernel 
+    // from dropping packets during high-speed local downloads (gigabit+ Wi-Fi)
+    pcap_set_buffer_size(m_handle, 32 * 1024 * 1024);
+
+    int status = pcap_activate(m_handle);
+    if (status != 0) {
+        emit captureError(QString("pcap_activate failed: %1").arg(pcap_geterr(m_handle)));
+        pcap_close(m_handle);
+        m_handle = nullptr;
         return;
     }
 

@@ -4,7 +4,9 @@
 #include <QMap>
 #include <QString>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <mutex>
+#include <atomic>
 #include "Types.h"
 
 namespace core {
@@ -33,9 +35,10 @@ private:
     std::mutex m_mutex;
     QMap<QString, core::TrafficStats> m_deviceStats;
     
-    int m_packetCount = 0;
+    std::atomic<int> m_packetCount{0};
     int m_lastPacketCount = 0;
     QTimer *m_statsTimer;
+    QElapsedTimer m_elapsedTimer;
 
     quint32 m_localIp = 0;
     quint32 m_localMask = 0;

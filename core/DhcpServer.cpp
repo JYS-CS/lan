@@ -116,27 +116,35 @@ QList<DHCPLease> DhcpServer::getActiveLeases() {
 
 void DhcpServer::addStaticLease(const QString &mac, const QString &ip,
                                  const QString &hostname) {
-    QMutexLocker locker(&m_leaseMutex);
     DHCPLease lease;
-    lease.mac      = mac.toLower();
-    lease.ip       = ip;
-    lease.hostname = hostname;
-    lease.expiry   = QDateTime::currentDateTime().addYears(10);
-    m_leases[lease.mac] = lease;
+    {
+        QMutexLocker locker(&m_leaseMutex);
+        lease.mac      = mac.toLower();
+        lease.ip       = ip;
+        lease.hostname = hostname;
+        lease.expiry   = QDateTime::currentDateTime().addYears(10);
+        m_leases[lease.mac] = lease;
+    }
     
     // Notify NetworkManager of the new discovery
     emit leaseUpdated(lease);
 }
 
 void DhcpServer::expireLease(const QString &mac) {
-    QMutexLocker locker(&m_leaseMutex);
-    // Set expiry to the past so getActiveLeases() stops returning it
-    // and allocateIP() won't consider it in-use.
-    if (m_leases.contains(mac)) {
-        DHCPLease lease = m_leases[mac];
-        m_leases[mac].expiry = QDateTime::currentDateTime().addSecs(-1);
-        qDebug() << "[DHCP] Expired lease for" << mac;
-        
+    DHCPLease lease;
+    bool found = false;
+    {
+        QMutexLocker locker(&m_leaseMutex);
+        // Set expiry to the past so getActiveLeases() stops returning it
+        // and allocateIP() won't consider it in-use.
+        if (m_leases.contains(mac)) {
+            lease = m_leases[mac];
+            m_leases[mac].expiry = QDateTime::currentDateTime().addSecs(-1);
+            found = true;
+            qDebug() << "[DHCP] Expired lease for" << mac;
+        }
+    }
+    if (found) {
         // Notify DHCPManager so it can update firewall
         emit leaseExpired(lease.ip, lease.mac);
     }

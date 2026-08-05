@@ -4,6 +4,7 @@
 #include <QLineEdit>
 #include <QFormLayout>
 #include <QDialogButtonBox>
+#include <QLabel>
 #include <QShowEvent>
 
 namespace gui {
@@ -30,6 +31,7 @@ private:
     QLineEdit *m_macEdit;
     QLineEdit *m_ipEdit;
     QLineEdit *m_hostEdit;
+    QLabel    *m_errorLabel;
 };
 
 } // namespace gui

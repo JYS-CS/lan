@@ -11,10 +11,84 @@
 #include <QScrollBar>
 #include <QStyle>
 #include <QDebug>
+#include <QDialog>
+#include <QTextEdit>
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 
 namespace gui {
+
+static void showErrorModal(QWidget *parent, const QString &title, const QString &msg) {
+    QDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setFixedSize(380, 180);
+    dialog.setStyleSheet(
+        "QDialog { background-color: #12151f; }"
+        "QLabel { color: #ff5c5c; font-size: 14px; font-weight: 500; margin-bottom: 5px; }"
+    );
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 24, 24, 24);
+    
+    QLabel *lbl = new QLabel(msg, &dialog);
+    lbl->setWordWrap(true);
+    lbl->setAlignment(Qt::AlignCenter);
+    layout->addWidget(lbl, 1);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    QPushButton *closeBtn = new QPushButton("Close", &dialog);
+    closeBtn->setObjectName("DangerBtn");
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    QObject::connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    btnLayout->addWidget(closeBtn);
+    btnLayout->addStretch();
+    
+    layout->addWidget(closeBtn, 0, Qt::AlignCenter);
+    Theme::fadeIn(&dialog, 150);
+    dialog.exec();
+}
+
+static void showSuccessModal(QWidget *parent, const QString &title, const QString &msg) {
+    QDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setFixedSize(380, 180);
+    dialog.setStyleSheet(
+        "QDialog { background-color: #12151f; }"
+        "QLabel { color: #2dd98f; font-size: 14px; font-weight: 500; margin-bottom: 5px; }"
+    );
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 24, 24, 24);
+    
+    QLabel *lbl = new QLabel(msg, &dialog);
+    lbl->setWordWrap(true);
+    lbl->setAlignment(Qt::AlignCenter);
+    layout->addWidget(lbl, 1);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    QPushButton *closeBtn = new QPushButton("Awesome", &dialog);
+    closeBtn->setStyleSheet("background-color: #2dd98f; color: #12151f; border-radius: 6px; padding: 8px 16px; font-weight: bold; border: none;");
+    closeBtn->setCursor(Qt::PointingHandCursor);
+    QObject::connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    btnLayout->addWidget(closeBtn);
+    btnLayout->addStretch();
+    
+    layout->addWidget(closeBtn, 0, Qt::AlignCenter);
+    Theme::fadeIn(&dialog, 150);
+    dialog.exec();
+}
+
+static void enableIpAutoFormat(QLineEdit *edit) {
+    if (!edit) return;
+    QObject::connect(edit, &QLineEdit::textEdited, edit, [edit, lastText = QString()](const QString &t) mutable {
+        if (t.length() < lastText.length()) { lastText = t; return; }
+        QString res = t;
+        QStringList parts = res.split('.');
+        if (!parts.isEmpty() && parts.last().length() == 3 && parts.size() < 4) res += '.';
+        lastText = res;
+        edit->setText(res);
+    });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constructor
@@ -48,7 +122,7 @@ void DHCPPage::setStartupMode(bool intercept) {
 }
 
 void DHCPPage::applyWizardSettingsAndStart(const gui::DhcpWizardSettings &settings) {
-    m_ifaceEdit->setText(settings.interface);
+    m_ifaceCombo->setCurrentText(settings.interface);
     m_myIpEdit->setText(settings.hostIp);
     m_gatewayEdit->setText(settings.gatewayIp);
     m_subnetEdit->setText(settings.subnetMask);
@@ -59,7 +133,7 @@ void DHCPPage::applyWizardSettingsAndStart(const gui::DhcpWizardSettings &settin
     if (!settings.dns2.isEmpty()) dns += (dns.isEmpty() ? "" : ", ") + settings.dns2;
     m_dnsEdit->setText(dns);
 
-    m_leaseEdit->setText(QString::number(settings.leaseTimeSeconds));
+    m_leaseEdit->setText(QString::number(settings.leaseTimeSeconds / 3600) + "h");
     m_authCheck->setChecked(settings.authoritative);
     m_interceptCheck->setChecked(settings.intercept);
 
@@ -142,20 +216,32 @@ void DHCPPage::setupUi() {
         return v;
     };
 
-    m_ifaceEdit      = new QLineEdit(this);
+    m_ifaceCombo = new QComboBox(this);
+    m_ifaceCombo->setCursor(Qt::PointingHandCursor);
+    for (const auto &iface : QNetworkInterface::allInterfaces()) {
+        if ((iface.flags() & QNetworkInterface::IsUp) && !(iface.flags() & QNetworkInterface::IsLoopBack)) {
+            m_ifaceCombo->addItem(iface.name()); // Only append active interfaces
+        }
+    }
     m_myIpEdit       = new QLineEdit(this);
     m_myIpEdit->setReadOnly(true);
     m_myIpEdit->setToolTip("Your machine's IP on this interface — read-only.");
     m_gatewayEdit    = new QLineEdit(this);
+    enableIpAutoFormat(m_gatewayEdit);
 
     m_rangeStartEdit = new QLineEdit(this);
+    enableIpAutoFormat(m_rangeStartEdit);
+    
     m_rangeEndEdit   = new QLineEdit(this);
+    enableIpAutoFormat(m_rangeEndEdit);
+    
     m_subnetEdit     = new QLineEdit(this);
+    enableIpAutoFormat(m_subnetEdit);
 
     m_dnsEdit  = new QLineEdit("8.8.8.8, 8.8.4.4", this);
-    m_leaseEdit= new QLineEdit("2m", this);
+    m_leaseEdit= new QLineEdit("24h", this);
 
-    gridLayout->addLayout(wrapInput(createLabel("Interface"),  m_ifaceEdit),      0, 0);
+    gridLayout->addLayout(wrapInput(createLabel("Interface"),  m_ifaceCombo),      0, 0);
     gridLayout->addLayout(wrapInput(createLabel("Host IP"),    m_myIpEdit),       0, 1);
     gridLayout->addLayout(wrapInput(createLabel("Real Gateway"), m_gatewayEdit),  0, 2);
     gridLayout->addLayout(wrapInput(createLabel("Range Start"),m_rangeStartEdit), 1, 0);
@@ -234,17 +320,19 @@ void DHCPPage::setupUi() {
     staticLayout->addWidget(m_staticLeasesTable);
 
     QHBoxLayout *staticBtnLayout = new QHBoxLayout();
-    QPushButton *addStaticBtn    = new QPushButton("Add Config...", this);
-    addStaticBtn->setObjectName("GhostBtn");
-    QPushButton *removeStaticBtn = new QPushButton("Remove", this);
-    removeStaticBtn->setObjectName("GhostBtn");
-    staticBtnLayout->addWidget(addStaticBtn);
-    staticBtnLayout->addWidget(removeStaticBtn);
+    m_addStaticBtn       = new QPushButton("Add Config...", this);
+    m_addStaticBtn->setObjectName("GhostBtn");
+    m_removeStaticBtn    = new QPushButton("Remove", this);
+    m_removeStaticBtn->setObjectName("GhostBtn");
+    m_addStaticBtn->setEnabled(false); // Default to off since server is offline
+    m_removeStaticBtn->setEnabled(false);
+    staticBtnLayout->addWidget(m_addStaticBtn);
+    staticBtnLayout->addWidget(m_removeStaticBtn);
     staticBtnLayout->addStretch();
     staticLayout->addLayout(staticBtnLayout);
 
-    connect(addStaticBtn,    &QPushButton::clicked, this, &DHCPPage::onAddStaticLeaseClicked);
-    connect(removeStaticBtn, &QPushButton::clicked, this, &DHCPPage::onRemoveStaticLeaseClicked);
+    connect(m_addStaticBtn,    &QPushButton::clicked, this, &DHCPPage::onAddStaticLeaseClicked);
+    connect(m_removeStaticBtn, &QPushButton::clicked, this, &DHCPPage::onRemoveStaticLeaseClicked);
 
     leasesLayout->addWidget(activeCard, 3);
     leasesLayout->addWidget(staticCard, 2);
@@ -261,7 +349,7 @@ void DHCPPage::startDhcpWithCurrentConfig() {
     m_interceptMode = m_interceptCheck->isChecked();
 
     core::DHCPServerConfig config;
-    config.interface    = m_ifaceEdit->text();
+    config.interface    = m_ifaceCombo->currentText();
     config.enabled      = true;
     config.authoritative= m_authCheck->isChecked();
     config.hostMac      = m_networkManager->property("hostMac").toString();
@@ -295,7 +383,7 @@ void DHCPPage::startDhcpWithCurrentConfig() {
             "  '{ type nat hook postrouting priority 100; }' 2>/dev/null; "
             "nft add rule ip lan_monitor_nat postrouting "
             "  ip saddr != " + m_myIpEdit->text().toUtf8() + " "
-            "  oif " + m_ifaceEdit->text().toUtf8() + " "
+            "  oif " + m_ifaceCombo->currentText().toUtf8() + " "
             "  masquerade 2>/dev/null"
         });
         qDebug() << "[DHCP] Intercept mode: ip_forward=1, scoped NAT MASQUERADE enabled";
@@ -315,11 +403,11 @@ void DHCPPage::startDhcpWithCurrentConfig() {
     if (dnsList.size() > 1) config.dns2 = dnsList[1].trimmed();
 
     QString leaseStr = m_leaseEdit->text().toLower();
-    int seconds = 3600;
+    int seconds = 86400; // Default to 24 hours if parsing completely fails
     if      (leaseStr.endsWith("h")) seconds = leaseStr.left(leaseStr.length()-1).toInt() * 3600;
     else if (leaseStr.endsWith("m")) seconds = leaseStr.left(leaseStr.length()-1).toInt() * 60;
     else if (leaseStr.endsWith("d")) seconds = leaseStr.left(leaseStr.length()-1).toInt() * 86400;
-    else                             seconds = leaseStr.toInt();
+    else                             seconds = leaseStr.toInt() * 3600; // Treat naked numbers as hours
     config.leaseTimeSeconds = seconds;
 
     m_statusLabel->setText("Starting DHCP Server...");
@@ -348,14 +436,57 @@ void DHCPPage::stopDhcpAndCleanup() {
 void DHCPPage::onStartStopClicked() {
     if (!m_dhcpManager) return;
     if (m_serverActive) {
-        auto reply = QMessageBox::question(this, "Stop DHCP Server",
-            "Stop the server? Active clients may lose their network config.",
-            QMessageBox::Yes | QMessageBox::No);
-        if (reply == QMessageBox::Yes) stopDhcpAndCleanup();
+        QDialog dialog(this);
+        dialog.setWindowTitle("Stop DHCP Server");
+        dialog.setFixedSize(400, 220);
+        dialog.setStyleSheet(
+            "QDialog { background-color: #12151f; }"
+            "QLabel { color: #b5bad0; font-size: 13px; }"
+            "QPushButton { background: rgba(79, 127, 255, 0.1); border: 1px solid #4f7fff; "
+            "   color: #4f7fff; padding: 6px 16px; border-radius: 8px; font-weight: bold; margin-top: 10px; }"
+            "QPushButton#DangerBtn { background: rgba(255, 92, 92, 0.1); border: 1px solid #ff5c5c; color: #ff5c5c; }"
+            "QPushButton:hover { background: rgba(79, 127, 255, 0.25); }"
+            "QPushButton#DangerBtn:hover { background: rgba(255, 92, 92, 0.25); }"
+        );
+
+        QVBoxLayout *layout = new QVBoxLayout(&dialog);
+        layout->setContentsMargins(24, 24, 24, 24);
+        layout->setSpacing(14);
+
+        QLabel *title = new QLabel("Stop DHCP Server?", &dialog);
+        title->setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;");
+        title->setAlignment(Qt::AlignCenter);
+        layout->addWidget(title);
+        
+        QLabel *msg = new QLabel("Active clients and discovered devices may lose\ntheir network configurations or leases.\n\nAre you sure you want to stop?", &dialog);
+        msg->setAlignment(Qt::AlignCenter);
+        layout->addWidget(msg);
+        
+        layout->addStretch();
+
+        QHBoxLayout *btnLayout = new QHBoxLayout();
+        btnLayout->addStretch();
+        
+        QPushButton *cancelBtn = new QPushButton("Cancel", &dialog);
+        connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+        btnLayout->addWidget(cancelBtn);
+        
+        QPushButton *stopBtn = new QPushButton("Stop Server", &dialog);
+        stopBtn->setObjectName("DangerBtn");
+        connect(stopBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+        btnLayout->addWidget(stopBtn);
+        
+        btnLayout->addStretch();
+        layout->addLayout(btnLayout);
+
+        Theme::fadeIn(&dialog, 150);
+        if (dialog.exec() == QDialog::Accepted) {
+            stopDhcpAndCleanup();
+        }
     } else {
         // Validate required fields
         if (m_gatewayEdit->text().isEmpty()) {
-            QMessageBox::warning(this, "Missing Gateway",
+            showErrorModal(this, "Missing Gateway",
                 "Real Gateway IP is required.\nRun 'Detect Network' or fill it in manually.");
             return;
         }
@@ -385,7 +516,10 @@ void DHCPPage::dhcpStatusChanged(bool active) {
             "border: 0.5px solid rgba(45,217,143,0.2); border-radius: 12px; "
             "padding: 4px 12px; font-weight: 500; font-size: 11px; margin-right: 15px; }");
 
-        m_detectBtn->setEnabled(false);
+        m_detectBtn->setVisible(false);
+        m_healthCheckBtn->setVisible(false);
+        m_addStaticBtn->setEnabled(true);
+        m_removeStaticBtn->setEnabled(true);
     } else {
         m_startStopBtn->setText("Start Server");
         m_startStopBtn->setObjectName("PrimaryBtn");
@@ -395,12 +529,17 @@ void DHCPPage::dhcpStatusChanged(bool active) {
             "border: 0.5px solid rgba(255,255,255,0.07); border-radius: 12px; "
             "padding: 4px 12px; font-weight: 500; font-size: 11px; margin-right: 15px; }");
 
-        const QList<QLineEdit*> fields = {m_ifaceEdit, m_rangeStartEdit,
+        const QList<QLineEdit*> fields = {m_rangeStartEdit,
             m_rangeEndEdit, m_subnetEdit, m_gatewayEdit, m_dnsEdit, m_leaseEdit};
         for (auto *f : fields) f->setReadOnly(false);
+        m_ifaceCombo->setEnabled(true);
         m_authCheck->setEnabled(true);
         m_interceptCheck->setEnabled(true);
+        m_detectBtn->setVisible(true);
+        m_healthCheckBtn->setVisible(true);
         m_detectBtn->setEnabled(true);
+        m_addStaticBtn->setEnabled(false);
+        m_removeStaticBtn->setEnabled(false);
     }
     Theme::pulse(m_statusLabel);
     m_startStopBtn->style()->unpolish(m_startStopBtn);
@@ -442,13 +581,99 @@ void DHCPPage::updateActiveLeases(const QList<core::DHCPLease> &leases) {
 
 void DHCPPage::onHealthCheckRequested() {
     if (!m_dhcpManager) return;
-    QMessageBox::information(this, "DHCP Health Check", m_dhcpManager->checkConflicts());
+    
+    QDialog dialog(this);
+    dialog.setWindowTitle("DHCP Health Diagnostics");
+    dialog.setFixedSize(400, 220);
+    dialog.setStyleSheet(
+        "QDialog { background-color: #12151f; }"
+        "QLabel { color: #e8eaf0; font-size: 13px; }"
+        "QPushButton { background: rgba(79, 127, 255, 0.1); border: 1px solid #4f7fff; "
+        "   color: #4f7fff; padding: 6px 16px; border-radius: 8px; font-weight: bold; margin-top: 10px; }"
+        "QPushButton:hover { background: rgba(79, 127, 255, 0.25); }"
+    );
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 24, 24, 24);
+    layout->setSpacing(14);
+
+    QLabel *title = new QLabel("Health Check Results", &dialog);
+    title->setStyleSheet("font-size: 16px; font-weight: bold; color: #ffffff;");
+    title->setAlignment(Qt::AlignCenter);
+    layout->addWidget(title);
+    
+    QString healthText = m_dhcpManager->checkConflicts();
+    healthText.replace("OK", "<span style='background-color: rgba(45,217,143,0.15); color: #2dd98f; padding: 2px 6px; border-radius: 4px;'>OK</span>");
+    
+    QLabel *textLabel = new QLabel(healthText, &dialog);
+    textLabel->setTextFormat(Qt::RichText);
+    textLabel->setStyleSheet("background-color: #161b26; border: 1px solid rgba(255,255,255,0.08); "
+                             "border-radius: 8px; color: #b5bad0; font-family: monospace; font-size: 13px; padding: 12px;");
+    textLabel->setAlignment(Qt::AlignCenter);
+    textLabel->setWordWrap(true);
+    layout->addWidget(textLabel);
+
+    layout->addStretch();
+
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    QPushButton *closeBtn = new QPushButton("Understood", &dialog);
+    connect(closeBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+    btnLayout->addWidget(closeBtn);
+    btnLayout->addStretch();
+    layout->addLayout(btnLayout);
+
+    Theme::fadeIn(&dialog, 200);
+    dialog.exec();
 }
 
 void DHCPPage::onAddStaticLeaseClicked() {
-    StaticLeaseDialog dialog("", "", "", this);
+    QString suggestedIp = "";
+    if (m_dhcpManager && m_dhcpManager->isServerRunning()) {
+        quint32 start = QHostAddress(m_rangeStartEdit->text()).toIPv4Address();
+        quint32 end   = QHostAddress(m_rangeEndEdit->text()).toIPv4Address();
+        
+        QSet<quint32> usedIps;
+        for (const auto& l : m_dhcpManager->readActiveLeases()) usedIps.insert(QHostAddress(l.ip).toIPv4Address());
+        for (int i = 0; i < m_staticLeasesTable->rowCount(); ++i) {
+            if (m_staticLeasesTable->item(i, 1)) usedIps.insert(QHostAddress(m_staticLeasesTable->item(i, 1)->text()).toIPv4Address());
+        }
+        
+        // Find the absolute first available IP in the subnet pool!
+        for (quint32 ip = start; ip <= end; ++ip) {
+            if (!usedIps.contains(ip)) {
+                suggestedIp = QHostAddress(ip).toString();
+                break;
+            }
+        }
+    }
+
+    StaticLeaseDialog dialog("", suggestedIp, "", this);
     if (dialog.exec() == QDialog::Accepted && m_dhcpManager) {
-        bool ok = m_dhcpManager->addStaticLease(dialog.mac(), dialog.ip(), dialog.hostname());
+        quint32 ipInt = QHostAddress(dialog.ip()).toIPv4Address();
+        quint32 subInt = QHostAddress(m_subnetEdit->text()).toIPv4Address();
+        quint32 gwInt = QHostAddress(m_myIpEdit->text()).toIPv4Address();
+        
+        if (ipInt == 0 || subInt == 0 || (ipInt & subInt) != (gwInt & subInt)) {
+            showErrorModal(this, "Invalid IP Address", "The static IP must fall strictly within the active subnetwork block of the DHCP server.");
+            return;
+        }
+
+        QString proposedMac = dialog.mac().toUpper();
+        QString proposedIp = dialog.ip();
+        
+        for (int i = 0; i < m_staticLeasesTable->rowCount(); ++i) {
+            if (m_staticLeasesTable->item(i, 0) && m_staticLeasesTable->item(i, 0)->text().toUpper() == proposedMac) {
+                showErrorModal(this, "Duplicate MAC", "This MAC address is already rigidly bound to an existing static lease.");
+                return;
+            }
+            if (m_staticLeasesTable->item(i, 1) && m_staticLeasesTable->item(i, 1)->text() == proposedIp) {
+                showErrorModal(this, "Duplicate IP", "This IP address is already permanently reserved by another device in the table.");
+                return;
+            }
+        }
+
+        bool ok = m_dhcpManager->addStaticLease(proposedMac, proposedIp, dialog.hostname());
         if (ok) {
             int row = m_staticLeasesTable->rowCount();
             m_staticLeasesTable->insertRow(row);
@@ -458,11 +683,12 @@ void DHCPPage::onAddStaticLeaseClicked() {
                 item->setTextAlignment(Qt::AlignCenter);
                 return item;
             };
-            m_staticLeasesTable->setItem(row, 0, makeCell(dialog.mac()));
-            m_staticLeasesTable->setItem(row, 1, makeCell(dialog.ip()));
+            m_staticLeasesTable->setItem(row, 0, makeCell(proposedMac));
+            m_staticLeasesTable->setItem(row, 1, makeCell(proposedIp));
             m_staticLeasesTable->setItem(row, 2, makeCell(dialog.hostname()));
+            showSuccessModal(this, "Lease Bound!", "Successfully locked " + dialog.hostname() + "\nto static IP address " + proposedIp + ".");
         } else {
-            QMessageBox::warning(this, "Error", "Failed to add static lease.");
+            showErrorModal(this, "Action Failed", "The internal DHCP tracking daemon refused to accept the static lease binding.");
         }
     }
 }
@@ -488,7 +714,8 @@ void DHCPPage::autoFillNetworkInfo() {
         return;
     }
 
-    m_ifaceEdit->setText(iface);
+    int idx = m_ifaceCombo->findText(iface);
+    if (idx >= 0) m_ifaceCombo->setCurrentIndex(idx);
     QHostAddress ip   = m_networkManager->getInterfaceAddress(iface);
     QHostAddress mask = m_networkManager->getInterfaceNetmask(iface);
 
@@ -526,8 +753,13 @@ void DHCPPage::autoFillNetworkInfo() {
     m_rangeStartEdit->setText(QHostAddress(poolStart).toString());
     m_rangeEndEdit->setText(QHostAddress(poolEnd).toString());
 
-    if (!gw.isEmpty())
+    if (!gw.isEmpty()) {
         m_statusLabel->setText(QString("✓ Network: %1  |  Gateway: %2").arg(ip.toString(), gw));
+        m_statusLabel->setStyleSheet(
+            "QLabel { background-color: rgba(45,217,143,0.12); color: #2dd98f; "
+            "border: 0.5px solid rgba(45,217,143,0.2); border-radius: 12px; "
+            "padding: 4px 12px; font-weight: 500; font-size: 11px; margin-right: 15px; }");
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -581,8 +813,6 @@ void DHCPPage::applyTheme() {
         "QScrollBar:vertical { background: #111318; width: 6px; margin: 0; }"
         "QScrollBar::handle:vertical { background: #1e2230; border-radius: 3px; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { border: none; background: none; }"
-        "QCheckBox { color: #e8eaf0; background: transparent; }"
-        "QCheckBox::indicator:checked { background: #4f7fff; border: 0.5px solid #4f7fff; }"
     );
 }
 

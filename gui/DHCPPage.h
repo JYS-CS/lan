@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QLineEdit>
+#include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QCheckBox>
@@ -65,7 +66,7 @@ private:
     QWidget     *m_configWidget   = nullptr;
 
     // Network info fields
-    QLineEdit *m_ifaceEdit       = nullptr;
+    QComboBox *m_ifaceCombo       = nullptr;
     QLineEdit *m_myIpEdit        = nullptr;   // host laptop's IP (read-only info)
     QLineEdit *m_gatewayEdit     = nullptr;   // real router IP
     QLineEdit *m_rangeStartEdit  = nullptr;
@@ -86,6 +87,8 @@ private:
     // Leases tables
     QTableWidget *m_activeLeasesTable  = nullptr;
     QTableWidget *m_staticLeasesTable  = nullptr;
+    QPushButton  *m_addStaticBtn       = nullptr;
+    QPushButton  *m_removeStaticBtn    = nullptr;
     QLabel       *m_feedbackLabel      = nullptr;
 
     QTimer *m_leaseTimer  = nullptr;

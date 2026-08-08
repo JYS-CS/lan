@@ -39,7 +39,7 @@ struct DhcpWizardSettings {
 class StartupModePage : public QWidget {
     Q_OBJECT
 public:
-    enum class Mode { Normal, DHCPServer, CableMode };
+    enum class Mode { Normal, DHCPServer };
 
     explicit StartupModePage(core::NetworkManager *networkManager, QWidget *parent = nullptr);
 
@@ -50,7 +50,6 @@ signals:
 private slots:
     void onNormalChosen();
     void onDhcpChosen();
-    void onCableChosen();
 
 private:
     void buildUi();
@@ -67,8 +66,6 @@ private:
     void runNetworkDetection();
     void refreshReviewSummary();
 
-    Mode m_selectedMode = Mode::Normal;
-
     core::NetworkManager *m_networkManager = nullptr;
     DhcpWizardSettings     m_settings;
 
@@ -79,11 +76,8 @@ private:
     // Step 0 UI
     QPushButton *m_normalBtn = nullptr;
     QPushButton *m_dhcpBtn   = nullptr;
-    QPushButton *m_cableBtn  = nullptr;
 
-    // Step: router warning / cable warning
-    QLabel      *m_warnTitle       = nullptr;
-    QLabel      *m_warnSubtitle    = nullptr;
+    // Step: router warning
     QLabel      *m_warnLabel       = nullptr;
     QPushButton *m_warnBackBtn     = nullptr;
     QPushButton *m_warnContinueBtn = nullptr;

@@ -38,7 +38,7 @@ void DeviceMonitorPage::setupUi() {
     
     // Logo & Title
     QLabel *icon = new QLabel(this);
-    icon->setPixmap(QIcon(":/resources/monitor.svg").pixmap(18, 18));
+    icon->setPixmap(Theme::tintedSvgPixmap(":/resources/monitor.svg", 18, Theme::AccentBlue));
     QLabel *title = new QLabel("Device Monitor", this);
     title->setStyleSheet("font-size: 14px; font-weight: 500; color: #e8eaf0;");
     
@@ -51,7 +51,7 @@ void DeviceMonitorPage::setupUi() {
     m_searchEdit->setPlaceholderText("Search devices...");
     m_searchEdit->setFixedWidth(220);
     
-    QAction *searchIcon = new QAction(QIcon(":/resources/search.svg"), "", m_searchEdit); 
+    QAction *searchIcon = new QAction(Theme::tintedIcon(":/resources/search.svg", 16, Theme::TextSecondary), "", m_searchEdit); 
     m_searchEdit->addAction(searchIcon, QLineEdit::LeadingPosition);
     
     hLayout->addWidget(m_searchEdit);

@@ -5,6 +5,12 @@
 #include <QGraphicsOpacityEffect>
 #include <QPropertyAnimation>
 #include <QSequentialAnimationGroup>
+#include <QFile>
+#include <QPixmap>
+#include <QIcon>
+#include <QPainter>
+#include <QSvgRenderer>
+#include <QRegularExpression>
 
 namespace gui {
 
@@ -127,6 +133,32 @@ inline void fadeIn(QWidget *w, int durationMs = 260) {
         w->setGraphicsEffect(nullptr);
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+// Loads a single-color SVG icon (Feather-style stroke icons or
+// SVGRepo-style fill icons — both use one top-level color attribute),
+// re-tints it, and rasterizes it. Used to give every icon in the app
+// the same clean, consistent brand color instead of whatever muted
+// or mismatched tone shipped in the source file.
+inline QPixmap tintedSvgPixmap(const QString &resourcePath, int size, const QColor &color) {
+    QFile file(resourcePath);
+    QPixmap pixmap(size, size);
+    pixmap.fill(Qt::transparent);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return pixmap;
+
+    QString svgText = QString::fromUtf8(file.readAll());
+    static const QRegularExpression colorRe("(stroke|fill)=\"#[0-9a-fA-F]{3,8}\"");
+    svgText.replace(colorRe, QString("\\1=\"%1\"").arg(color.name()));
+
+    QSvgRenderer renderer(svgText.toUtf8());
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    renderer.render(&painter);
+    return pixmap;
+}
+
+inline QIcon tintedIcon(const QString &resourcePath, int size, const QColor &color) {
+    return QIcon(tintedSvgPixmap(resourcePath, size, color));
 }
 
 } // namespace Theme

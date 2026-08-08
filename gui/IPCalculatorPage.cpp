@@ -27,19 +27,19 @@ void IPCalculatorPage::setupUi() {
 
     QWidget *forensicTab = new QWidget();
     setupForensicTab(forensicTab);
-    m_tabs->addTab(forensicTab, QIcon(":/resources/forensics.svg"), " Network Forensics");
+    m_tabs->addTab(forensicTab, Theme::tintedIcon(":/resources/forensics.svg", 16, Theme::AccentBlue), " Network Forensics");
 
     QWidget *subnetTab = new QWidget();
     setupSubnetTab(subnetTab);
-    m_tabs->addTab(subnetTab, QIcon(":/resources/subnet.svg"), " Subnet Planner");
+    m_tabs->addTab(subnetTab, Theme::tintedIcon(":/resources/subnet.svg", 16, Theme::AccentBlue), " Subnet Planner");
 
     QWidget *aggTab = new QWidget();
     setupAggregationTab(aggTab);
-    m_tabs->addTab(aggTab, QIcon(":/resources/merger.svg"), " Network Merger");
+    m_tabs->addTab(aggTab, Theme::tintedIcon(":/resources/merger.svg", 16, Theme::AccentOrange), " Network Merger");
 
     QWidget *refTab = new QWidget();
     setupReferenceTab(refTab);
-    m_tabs->addTab(refTab, QIcon(":/resources/reference.svg"), " Reference Sheet");
+    m_tabs->addTab(refTab, Theme::tintedIcon(":/resources/reference.svg", 16, Theme::AccentBlue), " Reference Sheet");
 
     mainLayout->addWidget(m_tabs);
 }

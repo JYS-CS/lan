@@ -18,28 +18,9 @@ namespace gui {
 
 namespace {
 
-// Loads a Feather-style SVG icon (single top-level stroke="#hex" attribute),
-// re-tints it to the given color, and rasterizes it at the given size.
-QPixmap coloredSvgIcon(const QString &resourcePath, int size, const QColor &color) {
-    QFile file(resourcePath);
-    QPixmap pixmap(size, size);
-    pixmap.fill(Qt::transparent);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return pixmap;
-
-    QString svgText = QString::fromUtf8(file.readAll());
-    static const QRegularExpression strokeRe("stroke=\"#[0-9a-fA-F]{3,8}\"");
-    svgText.replace(strokeRe, QString("stroke=\"%1\"").arg(color.name()));
-
-    QSvgRenderer renderer(svgText.toUtf8());
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    renderer.render(&painter);
-    return pixmap;
-}
-
 QLabel *makeIconLabel(QWidget *parent, const QString &resourcePath, int size, const QColor &color) {
     QLabel *lbl = new QLabel(parent);
-    lbl->setPixmap(coloredSvgIcon(resourcePath, size, color));
+    lbl->setPixmap(Theme::tintedSvgPixmap(resourcePath, size, color));
     lbl->setAlignment(Qt::AlignCenter);
     lbl->setFixedHeight(size);
     return lbl;

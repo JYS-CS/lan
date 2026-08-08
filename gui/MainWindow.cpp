@@ -196,7 +196,7 @@ void MainWindow::setupToolBar() {
     m_navGroup->setExclusive(true);
 
     auto createNavBtn = [this](QString text, QString iconPath, int pageIndex) {
-        QPushButton *btn = new QPushButton(QIcon(iconPath), text, this);
+        QPushButton *btn = new QPushButton(Theme::tintedIcon(iconPath, 16, Theme::AccentBlue), text, this);
         btn->setCheckable(true);
         btn->setFixedHeight(26);
         btn->setFlat(true);
@@ -210,7 +210,7 @@ void MainWindow::setupToolBar() {
     auto createGroupDropdown = [this](QString text, QString iconPath, QList<std::tuple<QString, QString, int>> items) {
         QToolButton *btn = new QToolButton(this);
         btn->setText(text);
-        btn->setIcon(QIcon(iconPath));
+        btn->setIcon(Theme::tintedIcon(iconPath, 16, Theme::AccentBlue));
         btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         btn->setPopupMode(QToolButton::InstantPopup);
         btn->setFixedHeight(26);
@@ -224,7 +224,9 @@ void MainWindow::setupToolBar() {
                          "QMenu::item:selected { background: rgba(79,127,255,0.15); color: #4f7fff; }");
         
         for (const auto &item : items) {
-            QAction *act = m->addAction(QIcon(std::get<1>(item)), std::get<0>(item));
+            // DHCP-related entries get the orange half of the duotone, matching the startup wizard
+            bool isDhcp = std::get<0>(item).contains("DHCP", Qt::CaseInsensitive);
+            QAction *act = m->addAction(Theme::tintedIcon(std::get<1>(item), 15, isDhcp ? Theme::AccentOrange : Theme::AccentBlue), std::get<0>(item));
             connect(act, &QAction::triggered, this, [this, item]() {
                 m_centralStacked->setCurrentIndex(std::get<2>(item));
             });

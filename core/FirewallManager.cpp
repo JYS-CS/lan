@@ -128,11 +128,11 @@ bool FirewallManager::isWhitelisted(const QString &mac) const {
 
 bool FirewallManager::unblockAll() {
     m_blockedMACs.clear();
-    bool ok1 = runNft({"delete", "table", "inet", m_tableName});
+    int res = QProcess::execute("sh", {"-c", QString("nft delete table inet %1 2>/dev/null").arg(m_tableName)});
     if (!m_interface.isEmpty()) {
-        runNft({"delete", "table", "netdev", m_tableName + "_layer2"});
+        QProcess::execute("sh", {"-c", QString("nft delete table netdev %1_layer2 2>/dev/null").arg(m_tableName)});
     }
-    return ok1;
+    return res == 0;
 }
 
 bool FirewallManager::runNft(const QStringList &args) {

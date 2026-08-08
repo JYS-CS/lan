@@ -11,6 +11,7 @@
 #include <QPainter>
 #include <QSvgRenderer>
 #include <QRegularExpression>
+#include <QTimer>
 
 namespace gui {
 
@@ -57,11 +58,17 @@ inline QString globalStyleSheet() {
         "QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #4f7fff; }"
         "QComboBox::drop-down { border: none; width: 22px; }"
 
-        "QCheckBox, QRadioButton { color: #c7cbe0; spacing: 8px; }"
-        "QCheckBox::indicator, QRadioButton::indicator { width: 15px; height: 15px; "
-        "   border-radius: 4px; border: 1px solid rgba(255,255,255,0.18); background: #161b26; }"
-        "QCheckBox::indicator:checked, QRadioButton::indicator:checked { "
-        "   background: #4f7fff; border: 1px solid #4f7fff; }"
+        "QRadioButton { color: #c7cbe0; spacing: 8px; }"
+        "QRadioButton::indicator { width: 15px; height: 15px; "
+        "   border-radius: 7px; border: 1px solid rgba(255,255,255,0.18); background: #161b26; }"
+        "QRadioButton::indicator:checked { background: #4f7fff; border: 1px solid #4f7fff; }"
+
+        "QCheckBox { color: #c7cbe0; spacing: 8px; }"
+        "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px; "
+        "   border: 1px solid rgba(255,92,92,0.6); background: rgba(255,92,92,0.15); "
+        "   image: url(:/resources/cross.svg); }"
+        "QCheckBox::indicator:checked { background: #2dd98f; border: 1px solid #2dd98f; "
+        "   image: url(:/resources/check.svg); }"
 
         "QGroupBox { border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; "
         "   margin-top: 14px; padding-top: 10px; color: #e8eaf0; font-weight: 600; }"
@@ -114,7 +121,7 @@ inline void pulse(QWidget *w) {
     seq->addAnimation(dim);
     seq->addAnimation(bright);
     QObject::connect(seq, &QSequentialAnimationGroup::finished, w, [w]() {
-        w->setGraphicsEffect(nullptr);
+        QTimer::singleShot(0, w, [w]() { w->setGraphicsEffect(nullptr); });
     });
     seq->start(QAbstractAnimation::DeleteWhenStopped);
 }
@@ -130,7 +137,7 @@ inline void fadeIn(QWidget *w, int durationMs = 260) {
     anim->setEndValue(1.0);
     anim->setEasingCurve(QEasingCurve::OutCubic);
     QObject::connect(anim, &QPropertyAnimation::finished, w, [w]() {
-        w->setGraphicsEffect(nullptr);
+        QTimer::singleShot(0, w, [w]() { w->setGraphicsEffect(nullptr); });
     });
     anim->start(QAbstractAnimation::DeleteWhenStopped);
 }

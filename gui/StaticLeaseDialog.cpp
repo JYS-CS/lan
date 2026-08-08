@@ -1,5 +1,6 @@
 #include "StaticLeaseDialog.h"
 #include "Theme.h"
+#include <QRegularExpression>
 
 namespace gui {
 
@@ -23,14 +24,54 @@ StaticLeaseDialog::StaticLeaseDialog(const QString &mac, const QString &ip, cons
     m_hostEdit->setText(hostname);
     m_hostEdit->setPlaceholderText("my-device");
 
+    connect(m_macEdit, &QLineEdit::textEdited, this, [this, lastText = QString()](const QString &t) mutable {
+        if (t.length() < lastText.length()) { lastText = t; return; } // Allow backspace deletion
+        QString raw = t; 
+        raw.remove(':'); 
+        raw.replace(QRegularExpression("[^0-9a-fA-F]"), ""); 
+        raw = raw.toUpper();
+        QString res;
+        for (int i = 0; i < raw.length() && i < 12; ++i) {
+            res += raw[i];
+            if (i % 2 == 1 && i != 11) res += ':';
+        }
+        lastText = res;
+        m_macEdit->setText(res);
+    });
+
+    connect(m_ipEdit, &QLineEdit::textEdited, this, [this, lastText = QString()](const QString &t) mutable {
+        if (t.length() < lastText.length()) { lastText = t; return; } // Allow backspace deletion
+        QString res = t;
+        QStringList parts = res.split('.');
+        if (!parts.isEmpty() && parts.last().length() == 3 && parts.size() < 4) {
+            res += '.';
+        }
+        lastText = res;
+        m_ipEdit->setText(res);
+    });
+
     layout->addRow("MAC Address:", m_macEdit);
     layout->addRow("IP Address:", m_ipEdit);
     layout->addRow("Hostname:", m_hostEdit);
 
     QDialogButtonBox *buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
-    layout->addWidget(buttonBox);
+    m_errorLabel = new QLabel(this);
+    m_errorLabel->setStyleSheet("color: #ff5c5c; font-size: 11px; font-weight: 500;");
+    m_errorLabel->setAlignment(Qt::AlignCenter);
+    layout->addRow(m_errorLabel);
+    layout->addRow(buttonBox);
 
-    connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::accepted, this, [this]() {
+        if (m_macEdit->text().isEmpty() || m_ipEdit->text().isEmpty() || m_hostEdit->text().isEmpty()) {
+            m_errorLabel->setText("All fields are strictly required.");
+            return;
+        }
+        if (m_macEdit->text().length() < 17) {
+            m_errorLabel->setText("Invalid MAC format. Keep typing.");
+            return;
+        }
+        accept();
+    });
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
     
     applyTheme();

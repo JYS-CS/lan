@@ -141,12 +141,38 @@ QWidget *StartupModePage::buildStepMode() {
     dl->addStretch();
     dl->addWidget(m_dhcpBtn);
 
+    // Cable card (USB to Ethernet)
+    QWidget *cableCard = new QWidget(page);
+    cableCard->setObjectName("ModeCard");
+    QVBoxLayout *cl = new QVBoxLayout(cableCard);
+    cl->setContentsMargins(24, 24, 24, 24);
+    cl->setSpacing(12);
+    cl->addWidget(makeIconLabel(cableCard, ":/resources/subnet.svg", 40, kNeutral));
+    QLabel *cTitle = new QLabel("Cable Mode", cableCard);
+    cTitle->setObjectName("ModeCardTitle");
+    cTitle->setAlignment(Qt::AlignCenter);
+    QLabel *cDesc = new QLabel(
+        "For direct physical connections like a USB-to-Ethernet link.\n\n"
+        "Automatically routes isolated subnetwork traffic without needing to disable an external router.", cableCard);
+    cDesc->setObjectName("ModeCardDesc");
+    cDesc->setAlignment(Qt::AlignCenter);
+    cDesc->setWordWrap(true);
+    m_cableBtn = new QPushButton("Start in Cable Mode", cableCard);
+    m_cableBtn->setObjectName("GhostBtn");
+    m_cableBtn->setCursor(Qt::PointingHandCursor);
+    cl->addWidget(cTitle);
+    cl->addWidget(cDesc);
+    cl->addStretch();
+    cl->addWidget(m_cableBtn);
+
     cardsRow->addWidget(normalCard, 1);
     cardsRow->addWidget(dhcpCard, 1);
+    cardsRow->addWidget(cableCard, 1);
     pageLayout->addLayout(cardsRow);
 
     connect(m_normalBtn, &QPushButton::clicked, this, &StartupModePage::onNormalChosen);
     connect(m_dhcpBtn,   &QPushButton::clicked, this, &StartupModePage::onDhcpChosen);
+    connect(m_cableBtn,  &QPushButton::clicked, this, &StartupModePage::onCableChosen);
 
     return page;
 }
@@ -160,25 +186,25 @@ QWidget *StartupModePage::buildStepRouterWarning() {
 
     pageLayout->addWidget(makeIconLabel(page, ":/resources/router.svg", 36, kOrange));
 
-    QLabel *title = new QLabel("Confirm DHCP Server Setup", page);
-    title->setObjectName("PageTitle");
-    title->setAlignment(Qt::AlignCenter);
-    pageLayout->addWidget(title);
+    m_warnTitle = new QLabel("Confirm DHCP Server Setup", page);
+    m_warnTitle->setObjectName("PageTitle");
+    m_warnTitle->setAlignment(Qt::AlignCenter);
+    pageLayout->addWidget(m_warnTitle);
 
-    QLabel *subtitle = new QLabel(
+    m_warnSubtitle = new QLabel(
         "Before this machine starts handing out leases, make sure your\n"
         "router's built-in DHCP server is turned off.", page);
-    subtitle->setObjectName("PageSubtitle");
-    subtitle->setAlignment(Qt::AlignCenter);
-    pageLayout->addWidget(subtitle);
+    m_warnSubtitle->setObjectName("PageSubtitle");
+    m_warnSubtitle->setAlignment(Qt::AlignCenter);
+    pageLayout->addWidget(m_warnSubtitle);
 
-    QLabel *warning = new QLabel(
+    m_warnLabel = new QLabel(
         "Important: If your router's DHCP server is still enabled, "
         "devices on the network may receive conflicting IP configurations. "
         "Disable it in your router's admin settings before continuing.", page);
-    warning->setObjectName("WarnLabel");
-    warning->setWordWrap(true);
-    pageLayout->addWidget(warning);
+    m_warnLabel->setObjectName("WarnLabel");
+    m_warnLabel->setWordWrap(true);
+    pageLayout->addWidget(m_warnLabel);
 
     pageLayout->addStretch();
 
@@ -273,9 +299,12 @@ QWidget *StartupModePage::buildStepDetectNetwork() {
     actions->addWidget(m_detContinueBtn);
     pageLayout->addLayout(actions);
 
-    connect(m_detBackBtn,     &QPushButton::clicked, this, [this]() { goToStep(1); });
-    connect(m_detRetryBtn,    &QPushButton::clicked, this, &StartupModePage::runNetworkDetection);
+    connect(m_detBackBtn, &QPushButton::clicked, this, [this]() {
+        if (m_selectedMode == Mode::CableMode) goToStep(0);
+        else goToStep(1); 
+    });
     connect(m_detContinueBtn, &QPushButton::clicked, this, [this]() { goToStep(3); });
+    connect(m_detRetryBtn,    &QPushButton::clicked, this, &StartupModePage::runNetworkDetection);
 
     return page;
 }
@@ -588,6 +617,28 @@ void StartupModePage::runNetworkDetection() {
 }
 
 void StartupModePage::goToStep(int index) {
+    if (index == 1) {
+        if (m_selectedMode == Mode::CableMode) {
+            m_warnTitle->setText("Hardware Connection Check");
+            m_warnSubtitle->setText("Ensure that the direct physical link is structurally connected.");
+            m_warnLabel->setText(
+                "Important: Before proceeding to the hardware scanning step, confirm that your USB-to-Ethernet adapter "
+                "(or direct CAT6 connection) is physically plugged into the computer and linked to an active hardware switch or client device."
+            );
+            m_warnContinueBtn->setText("Hardware is securely plugged in — Continue");
+        } else {
+            m_warnTitle->setText("Confirm DHCP Server Setup");
+            m_warnSubtitle->setText(
+                "Before this machine starts handing out leases, make sure your\n"
+                "router's built-in DHCP server is turned off.");
+            m_warnLabel->setText(
+                "Important: If your router's DHCP server is still enabled, "
+                "devices on the network may receive conflicting IP configurations. "
+                "Disable it in your router's admin settings before continuing.");
+            m_warnContinueBtn->setText("I've disabled my router's DHCP — Continue");
+        }
+    }
+
     m_steps->setCurrentIndex(index);
     m_stepLabel->setText(index == 0 ? "STEP 1" : QString("STEP %1 OF 6").arg(index + 1));
 
@@ -614,7 +665,14 @@ void StartupModePage::onNormalChosen() {
 }
 
 void StartupModePage::onDhcpChosen() {
+    m_selectedMode = Mode::DHCPServer;
     goToStep(1);
+}
+
+void StartupModePage::onCableChosen() {
+    m_selectedMode = Mode::CableMode;
+    m_settings.intercept = false;
+    goToStep(1); // Divert sequentially down the warning pipeline dynamically
 }
 
 void StartupModePage::applyTheme() {

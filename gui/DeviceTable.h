@@ -1,12 +1,14 @@
 #pragma once
 
-#include <QTableWidget>
-#include <QHeaderView>
+#include <QTableView>
+#include <QSortFilterProxyModel>
 #include "../core/Device.h"
+#include "DeviceTableModel.h"
+#include "DeviceTableDelegate.h"
 
 namespace gui {
 
-class DeviceTable : public QTableWidget {
+class DeviceTable : public QTableView {
     Q_OBJECT
 
 public:
@@ -26,12 +28,13 @@ signals:
 private slots:
     void onCustomContextMenu(const QPoint &pos);
     void onRenameRequested(const QString &mac, const QString &oldAlias);
-    QString getVendorIcon(const QString &vendor);
 
 private:
+    DeviceTableModel *m_model;
+    QSortFilterProxyModel *m_proxy;
+    DeviceTableDelegate *m_delegate;
+    
     void initTable();
-    void updateStatusBadge(int row, const QString &status);
-    QMap<QString, int> m_rowMap; // IP -> RowIndex
 };
 
 } // namespace gui

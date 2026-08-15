@@ -3,6 +3,7 @@
 
 #include "NetworkManager.h"
 #include "DatabaseManager.h"
+#include "RouterDetector.h"
 
 // Qt
 #include <QNetworkInterface>
@@ -62,21 +63,72 @@ static QString macBytesToString(const unsigned char *b) {
 // ============================================================
 const QHash<QString, QString> &NetworkManager::ouiTable() {
     static QHash<QString, QString> t = {
+        // Apple
         {"A4:D1:8C", "Apple"},   {"A8:BE:27", "Apple"},   {"3C:22:FB", "Apple"},
         {"F0:18:98", "Apple"},   {"DC:A9:04", "Apple"},   {"B8:09:8A", "Apple"},
+        {"00:17:F2", "Apple"},   {"00:1F:5B", "Apple"},
+        // Samsung
         {"B4:F1:DA", "Samsung"}, {"8C:77:12", "Samsung"}, {"94:D4:69", "Samsung"},
-        {"E8:50:8B", "Samsung"}, {"2C:4D:54", "Samsung"},
+        {"E8:50:8B", "Samsung"}, {"2C:4D:54", "Samsung"}, {"CC:07:AB", "Samsung"},
+        {"00:12:47", "Samsung"}, {"F4:42:8F", "Samsung"},
+        // Xiaomi
         {"64:B4:73", "Xiaomi"},  {"F8:A4:5F", "Xiaomi"},  {"28:6C:07", "Xiaomi"},
+        {"50:64:2B", "Xiaomi"},  {"AC:C1:EE", "Xiaomi"},  {"34:CE:00", "Xiaomi"},
+        {"00:9E:C8", "Xiaomi"},  {"D4:97:0B", "Xiaomi"},
+        // Huawei (routers, modems, WiFi AX series)
         {"74:4A:A4", "Huawei"},  {"B0:E5:ED", "Huawei"},  {"48:46:FB", "Huawei"},
-        {"3C:5A:B4", "Google"},  {"F4:F5:D8", "Google"},  {"54:60:09", "Google"},
-        {"B8:27:EB", "Raspberry Pi"}, {"DC:A6:32", "Raspberry Pi"}, {"E4:5F:01", "Raspberry Pi"},
+        {"04:79:70", "Huawei"},  {"A4:BA:DB", "Huawei"},  {"54:89:98", "Huawei"},
+        {"F8:01:13", "Huawei"},  {"10:47:80", "Huawei"},  {"00:46:4B", "Huawei"},
+        {"CC:96:A0", "Huawei"},  {"30:D1:7E", "Huawei"},  {"6C:4B:90", "Huawei"},
+        {"AC:E2:15", "Huawei"},  {"28:31:52", "Huawei"},  {"70:72:3C", "Huawei"},
+        // TP-Link
         {"50:3E:AA", "TP-Link"}, {"C0:4A:00", "TP-Link"}, {"54:AF:97", "TP-Link"},
-        {"A0:40:A0", "Netgear"}, {"C4:04:15", "Netgear"},
-        {"00:1A:A1", "Cisco"},   {"E8:BA:70", "Cisco"},
-        {"8C:8D:28", "Intel"},   {"A4:C3:F0", "Intel"},
+        {"98:DA:C4", "TP-Link"}, {"14:CF:92", "TP-Link"}, {"30:FC:68", "TP-Link"},
+        {"EC:08:6B", "TP-Link"}, {"A0:F3:C1", "TP-Link"}, {"B0:95:8E", "TP-Link"},
+        {"78:44:FD", "TP-Link"}, {"40:3F:8C", "TP-Link"}, {"B8:D5:0B", "TP-Link"},
+        // Netgear
+        {"A0:40:A0", "Netgear"}, {"C4:04:15", "Netgear"}, {"20:4E:7F", "Netgear"},
+        {"00:14:6C", "Netgear"}, {"9C:D3:6D", "Netgear"}, {"28:C6:8E", "Netgear"},
+        {"A4:2B:8C", "Netgear"}, {"C0:3F:0E", "Netgear"},
+        // ASUS
+        {"10:BF:48", "ASUS"},    {"50:46:5D", "ASUS"},    {"04:D4:C4", "ASUS"},
+        {"2C:56:DC", "ASUS"},    {"F8:32:E4", "ASUS"},    {"BC:EE:7B", "ASUS"},
+        {"AC:84:C6", "ASUS"},    {"74:D0:2B", "ASUS"},    {"00:26:18", "ASUS"},
+        // D-Link
+        {"1C:7E:E5", "D-Link"},  {"14:D6:4D", "D-Link"},  {"00:26:5A", "D-Link"},
+        {"B8:A3:86", "D-Link"},  {"F0:7D:68", "D-Link"},  {"C8:D3:A3", "D-Link"},
+        // Linksys / Belkin
+        {"C8:D7:19", "Linksys"}, {"00:25:9C", "Linksys"}, {"20:AA:4B", "Linksys"},
+        {"00:14:BF", "Linksys"}, {"E8:9F:80", "Belkin"},  {"94:44:52", "Belkin"},
+        // Cisco / Meraki
+        {"00:1A:A1", "Cisco"},   {"E8:BA:70", "Cisco"},   {"00:0C:29", "Cisco"},
+        {"00:17:DF", "Cisco"},   {"34:DB:FD", "Cisco"},   {"00:23:5E", "Cisco"},
+        {"E8:65:49", "Cisco Meraki"}, {"88:15:44", "Cisco Meraki"},
+        // Ubiquiti
+        {"24:A4:3C", "Ubiquiti"},{"00:27:22", "Ubiquiti"},{"F0:9F:C2", "Ubiquiti"},
+        {"78:8A:20", "Ubiquiti"},{"E0:63:DA", "Ubiquiti"},{"74:83:C2", "Ubiquiti"},
+        {"DC:9F:DB", "Ubiquiti"},{"68:72:51", "Ubiquiti"},
+        // MikroTik
+        {"4C:5E:0C", "MikroTik"},{"D4:CA:6D", "MikroTik"},{"2C:C8:1B", "MikroTik"},
+        {"B8:69:F4", "MikroTik"},{"18:FD:74", "MikroTik"},{"08:55:31", "MikroTik"},
+        // AVM FRITZ!Box
+        {"C4:86:E9", "AVM"},     {"3C:A6:2F", "AVM"},     {"DC:39:6F", "AVM"},
+        {"9C:C7:A6", "AVM"},     {"E0:28:6D", "AVM"},
+        // Google / Nest
+        {"3C:5A:B4", "Google"},  {"F4:F5:D8", "Google"},  {"54:60:09", "Google"},
+        {"A4:77:33", "Google"},  {"F4:85:27", "Google"},
+        // GL.iNet
+        {"94:83:C4", "GL.iNet"}, {"E4:95:6E", "GL.iNet"},
+        // Synology
+        {"00:11:32", "Synology"},{"BC:24:11", "Synology"},
+        // Raspberry Pi
+        {"B8:27:EB", "Raspberry Pi"}, {"DC:A6:32", "Raspberry Pi"}, {"E4:5F:01", "Raspberry Pi"},
+        // Intel (Wi-Fi cards)
+        {"8C:8D:28", "Intel"},   {"A4:C3:F0", "Intel"},   {"00:21:6A", "Intel"},
+        // Dell
         {"D4:BE:D9", "Dell"},    {"F8:DB:88", "Dell"},
+        // Sony
         {"00:1A:80", "Sony"},    {"FC:0F:E6", "Sony"},
-        {"CC:07:AB", "Samsung"}, {"98:DA:C4", "TP-Link"},
     };
     return t;
 }
@@ -244,6 +296,17 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         }
     });
 
+    // Router Detector
+    m_routerDetector = new RouterDetector();
+    m_routerThread   = new QThread(this);
+    m_routerDetector->moveToThread(m_routerThread);
+    connect(m_routerThread, &QThread::finished, m_routerDetector, &QObject::deleteLater);
+    connect(m_routerDetector, &RouterDetector::routerInfoReady,
+            this, &NetworkManager::routerInfoReady, Qt::QueuedConnection);
+    connect(m_routerDetector, &RouterDetector::detectionStage,
+            this, &NetworkManager::routerDetectionStage, Qt::QueuedConnection);
+    m_routerThread->start();
+
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
     // This prevents any scan/firewall activity while the wizard is open.
@@ -303,6 +366,10 @@ NetworkManager::~NetworkManager() {
         if (m_packetCapturer) m_packetCapturer->stopCapture();
         m_captureThread->quit();
         m_captureThread->wait(2000);
+    }
+    if (m_routerThread) {
+        m_routerThread->quit();
+        m_routerThread->wait(3000);
     }
 }
 
@@ -1104,6 +1171,13 @@ void NetworkManager::runScan() {
     auto *bgThread = QThread::create([this, iface, netAddr, bcastAddr, myIpAddr, capturedLeases]() {
         step3_probeUnconfirmed(iface, netAddr, bcastAddr, myIpAddr);
         emit scanProgress(80);
+        
+        // Trigger router detection NOW. The main thread has processed the ARP replies,
+        // so m_gatewayMac is populated. This runs in parallel with step4.
+        QMetaObject::invokeMethod(this, [this]() {
+            triggerRouterDetection();
+        }, Qt::QueuedConnection);
+
         step4_fingerprint(iface);
         emit scanProgress(95);
 
@@ -1198,5 +1272,44 @@ QMap<QString, QString> NetworkManager::readDHCPLeases() {
     return map;
 }
 
+
+RouterInfo NetworkManager::getRouterInfo() const {
+    if (m_routerDetector) return m_routerDetector->lastInfo();
+    return RouterInfo{};
+}
+
+void NetworkManager::triggerRouterDetection(bool force) {
+    if (!m_routerDetector || m_gatewayIp.isEmpty()) return;
+
+    // Fail-safe: If the MAC isn't resolved yet due to a race condition with the passive sniffer,
+    // fetch it directly from the kernel ARP cache before running detection.
+    if (m_gatewayMac.isEmpty()) {
+        QFile f("/proc/net/arp");
+        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QTextStream in(&f);
+            in.readLine(); // skip header
+            while (!in.atEnd()) {
+                QStringList parts = in.readLine().trimmed().split(QRegularExpression("\\s+"));
+                if (parts.size() >= 4 && parts[0] == m_gatewayIp) {
+                    if (parts[3] != "00:00:00:00:00:00") {
+                        m_gatewayMac = parts[3];
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Throttle: don't re-probe within 60 s of the last probe unless forced
+    static QDateTime lastProbe;
+    if (!force && lastProbe.isValid() && lastProbe.secsTo(QDateTime::currentDateTime()) < 60) return;
+    lastProbe = QDateTime::currentDateTime();
+
+    QString gwIp  = m_gatewayIp;
+    QString gwMac = m_gatewayMac;
+    QMetaObject::invokeMethod(m_routerDetector, [this, gwIp, gwMac]() {
+        m_routerDetector->detect(gwIp, gwMac);
+    }, Qt::QueuedConnection);
+}
 
 } // namespace core

@@ -15,6 +15,7 @@
 #include "TrafficPage.h"
 #include "PortScanDialog.h"
 #include "StartupModePage.h"
+#include "RouterPage.h"
 #include "Theme.h"
 #include <QButtonGroup>
 #include <QFrame>
@@ -54,6 +55,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Connect Traffic logic
     connect(m_networkManager, &core::NetworkManager::trafficUpdated, m_trafficPage, &TrafficPage::updateTraffic);
     connect(m_networkManager, &core::NetworkManager::globalTrafficStatsUpdated, m_trafficPage, &TrafficPage::updateGlobalStats);
+    // Router detection
+    connect(m_networkManager, &core::NetworkManager::routerInfoReady,     m_routerPage, &RouterPage::updateInfo);
+    connect(m_networkManager, &core::NetworkManager::routerDetectionStage, m_routerPage, &RouterPage::setDetectionStage);
     // Context Menu / Expansion Logic
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::aliasRequested, m_networkManager, &core::NetworkManager::updateDeviceAlias);
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::whitelistRequested, m_networkManager, &core::NetworkManager::addWhitelistedMAC);
@@ -129,6 +133,10 @@ void MainWindow::setupUI() {
     // Page 4: IP Calculator Page
     m_ipCalcPage = new IPCalculatorPage(this);
     m_centralStacked->addWidget(m_ipCalcPage);
+
+    // Page 5: Router Intelligence Page
+    m_routerPage = new RouterPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_routerPage);
 
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
@@ -247,6 +255,10 @@ void MainWindow::setupToolBar() {
         {"DHCP", ":/resources/router.svg", 3}, 
         {"IP Calculator", ":/resources/calculator.svg", 4}
     }));
+    hLayout->addWidget(createDivider());
+
+    // 4. ROUTER button
+    hLayout->addWidget(createNavBtn("Router", ":/resources/router.svg", 5));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

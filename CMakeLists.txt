@@ -55,12 +55,22 @@ add_executable(LANMonitor
     core/PortScanner.h
     core/Types.h
     core/NetworkManager.h
+    core/RouterDetector.h
+    core/RouterDetector.cpp
     resources.qrc
     core/Device.h
     gui/MainWindow.cpp
     gui/MainWindow.h
     gui/DeviceTable.cpp
     gui/DeviceTable.h
+    gui/DeviceTableModel.cpp
+    gui/DeviceTableModel.h
+    gui/DeviceTableDelegate.cpp
+    gui/DeviceTableDelegate.h
+    gui/TopologyWidget.cpp
+    gui/TopologyWidget.h
+    gui/RouterPage.h
+    gui/RouterPage.cpp
     utils/Logger.h
 )
 
@@ -72,4 +82,14 @@ target_link_libraries(LANMonitor PRIVATE
     PkgConfig::CRAFTER
     ${PCAP_LIBRARY}
     pthread
+)
+
+# Copy user-editable router model DB next to the executable at build time
+add_custom_command(TARGET LANMonitor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:LANMonitor>/data
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/data/router_models.json
+        $<TARGET_FILE_DIR:LANMonitor>/data/router_models.json
+    COMMENT "Copying router_models.json to build output"
 )

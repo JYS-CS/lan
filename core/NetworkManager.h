@@ -20,6 +20,7 @@
 #include "DHCPManager.h"
 #include "CaptivePortalManager.h"
 #include "Types.h"
+#include "RouterDetector.h"
 
 // Forward-declare pcap types to avoid pulling pcap.h into every TU
 struct pcap;
@@ -84,6 +85,7 @@ public:
     QString getActiveInterface();
     QHostAddress getInterfaceAddress(const QString &iface);
     QHostAddress getInterfaceNetmask(const QString &iface);
+    RouterInfo  getRouterInfo() const;
 
 signals:
     void devicesUpdated(const QList<core::Device> &devices);
@@ -93,7 +95,11 @@ signals:
     void statusMessage(const QString &msg);
     void globalTrafficStatus(const QString &msg);
     void eventLogged(const core::NetworkEvent &event);
-    
+
+    // Router detection
+    void routerInfoReady(const core::RouterInfo &info);
+    void routerDetectionStage(const QString &msg);
+
     // DHCP signals
     void dhcpStatusUpdate(bool running);
     void dhcpOperationSuccess(const QString &msg);
@@ -105,6 +111,7 @@ signals:
 
 public slots:
     void onRefreshRequested();
+    void triggerRouterDetection(bool force = false);
 
 private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
@@ -137,13 +144,15 @@ private:
     QThread *m_networkThread = nullptr;
     QMutex m_resultsMutex;
     QMap<QString, Device> m_allDevices;
-    
+
     // Sub-components
     PacketCapture *m_packetCapturer = nullptr;
     TrafficMonitor *m_trafficMonitor = nullptr;
     FirewallManager *m_firewallManager = nullptr;
     DHCPManager    *m_dhcpManager     = nullptr;
     CaptivePortalManager *m_captivePortal = nullptr;
+    RouterDetector *m_routerDetector  = nullptr;
+    QThread        *m_routerThread    = nullptr;
 
     QString m_interfaceName;
     QString m_gatewayIp;

@@ -14,7 +14,7 @@ namespace core {
 TrafficMonitor::TrafficMonitor(QObject *parent) : QObject(parent) {
     m_statsTimer = new QTimer(this);
     connect(m_statsTimer, &QTimer::timeout, this, &TrafficMonitor::calculateRates);
-    m_statsTimer->start(100); // 10Hz hyper-fast proactive UI update
+    m_statsTimer->start(1000); // 1Hz update (every 1 second) to prevent UI blinking
     m_elapsedTimer.start();
 }
 

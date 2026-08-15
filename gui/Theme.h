@@ -39,6 +39,21 @@ inline const QColor Success = QColor("#3ddc84");
 inline const QColor Warning = QColor("#e8c07a");
 inline const QColor Danger  = QColor("#ff5c5c");
 
+// Ops Console Theme Tokens
+inline const QColor OpsBg        = QColor("#0a0d12");
+inline const QColor OpsPanel     = QColor("#0f141b");
+inline const QColor OpsAltPanel  = QColor("#12181f");
+inline const QColor OpsBorder    = QColor("#1c232c");
+inline const QColor OpsBorderSoft= QColor("#161c24");
+
+inline const QColor OpsTextPrimary = QColor("#dbe4ee");
+inline const QColor OpsTextDim     = QColor("#7c8798");
+inline const QColor OpsTextFaint   = QColor("#4d5666");
+
+inline const QColor OpsAccentGreen = QColor("#34e4a0"); // online/self
+inline const QColor OpsAccentTeal  = QColor("#5eead4"); // gateway
+inline const QColor OpsAccentAmber = QColor("#f5a623"); // warning/unknown vendor
+
 // Applied once, app-wide, in main.cpp. Individual pages can still
 // layer more specific rules on top via their own setStyleSheet() —
 // Qt's cascade lets widget-level styling override this base.
@@ -106,18 +121,18 @@ inline void pulse(QWidget *w) {
     auto *effect = new QGraphicsOpacityEffect(w);
     w->setGraphicsEffect(effect);
 
-    auto *dim = new QPropertyAnimation(effect, "opacity");
+    auto *dim = new QPropertyAnimation(effect, "opacity", effect);
     dim->setDuration(90);
     dim->setStartValue(1.0);
     dim->setEndValue(0.35);
 
-    auto *bright = new QPropertyAnimation(effect, "opacity");
+    auto *bright = new QPropertyAnimation(effect, "opacity", effect);
     bright->setDuration(220);
     bright->setStartValue(0.35);
     bright->setEndValue(1.0);
     bright->setEasingCurve(QEasingCurve::OutCubic);
 
-    auto *seq = new QSequentialAnimationGroup(w);
+    auto *seq = new QSequentialAnimationGroup(effect);
     seq->addAnimation(dim);
     seq->addAnimation(bright);
     QObject::connect(seq, &QSequentialAnimationGroup::finished, w, [w]() {
@@ -131,7 +146,7 @@ inline void fadeIn(QWidget *w, int durationMs = 260) {
     if (!w) return;
     auto *effect = new QGraphicsOpacityEffect(w);
     w->setGraphicsEffect(effect);
-    auto *anim = new QPropertyAnimation(effect, "opacity", w);
+    auto *anim = new QPropertyAnimation(effect, "opacity", effect);
     anim->setDuration(durationMs);
     anim->setStartValue(0.0);
     anim->setEndValue(1.0);

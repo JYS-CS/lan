@@ -5,9 +5,13 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QTimer>
+#include <QDateTime>
 #include "DeviceTable.h"
+#include "TopologyWidget.h"
 #include "../core/NetworkManager.h"
 
 namespace gui {
@@ -34,23 +38,30 @@ private slots:
 private:
     void setupUi();
     void applyTheme();
-    QWidget* createStatPill(const QString &label, const QString &color, QLabel **countPtr);
+    QWidget* createStatCard(const QString &label, const QString &color, QLabel **countPtr);
 
     core::NetworkManager *m_networkManager;
     DeviceTable *m_deviceTable;
+    TopologyWidget *m_topologyWidget;
     
-    // ActionBar elements
     QLineEdit *m_searchEdit;
     QLabel *m_onlineCount;
-    QLabel *m_idleCount;
-    QLabel *m_totalCount;
-    QLabel *m_gatewayStatus;
-    QPushButton *m_refreshBtn;
-    QPushButton *m_exportBtn;
+    QLabel *m_uploadTotal;
+    QLabel *m_downloadTotal;
+    QLabel *m_unknownCount;
 
-    // Status bar
-    QLabel *m_hintLabel;
-    QLabel *m_selLabel;
+    QLabel *m_gatewayStatus;
+    QLabel *m_lastUpdatedLabel;
+    QLabel *m_totalHostCountLabel;
+    
+    QTimer *m_footerTimer;
+    bool m_liveDotState = false;
+    QLabel *m_footerLiveDot;
+    
+    QDateTime m_lastUpdate;
+    
+    qreal parseBw(const QString &bwStr);
+    QString formatBw(qreal bytesPerSec);
 };
 
 } // namespace gui

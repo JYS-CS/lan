@@ -9,7 +9,8 @@ namespace gui {
 
 TopologyWidget::TopologyWidget(QWidget *parent) : QWidget(parent) {
     setFixedSize(300, 60);
-    
+    rebuildIconCache();
+
     connect(&m_animTimer, &QTimer::timeout, this, [this]() {
         m_pulsePhase += 0.1;
         m_travelPhase += 0.02 * m_travelDir;
@@ -27,7 +28,24 @@ TopologyWidget::TopologyWidget(QWidget *parent) : QWidget(parent) {
 
 void TopologyWidget::setMode(bool isGateway) {
     m_isGateway = isGateway;
+    rebuildIconCache();
     update();
+}
+
+QPixmap TopologyWidget::iconFor(const QString &path, const QColor &color) {
+    return Theme::tintedSvgPixmap(path, 14, color);
+}
+
+void TopologyWidget::rebuildIconCache() {
+    if (m_isGateway) {
+        m_iconCache[0] = iconFor(":/resources/traffic.svg", Theme::OpsAccentTeal);
+        m_iconCache[1] = iconFor(":/resources/monitor.svg", Theme::OpsAccentGreen);
+        m_iconCache[2] = iconFor(":/resources/router.svg",  Theme::OpsTextDim);
+    } else {
+        m_iconCache[0] = iconFor(":/resources/monitor.svg", Theme::OpsAccentGreen);
+        m_iconCache[1] = iconFor(":/resources/router.svg",  Theme::OpsAccentTeal);
+        m_iconCache[2] = iconFor(":/resources/wifi.svg",    Theme::OpsTextDim);
+    }
 }
 
 void TopologyWidget::paintEvent(QPaintEvent *event) {
@@ -60,7 +78,7 @@ void TopologyWidget::paintEvent(QPaintEvent *event) {
     painter.drawLine(pt1.x(), y, pt3.x(), y);
 
     // Draw nodes
-    auto drawNode = [&](QPoint pt, QColor color, double pulseOffset, const QString &iconPath, const QString &label) {
+    auto drawNode = [&](QPoint pt, QColor color, double pulseOffset, const QPixmap &icon, const QString &label) {
         double pulse = (std::sin(m_pulsePhase + pulseOffset) + 1.0) / 2.0;
         
         QRadialGradient glowGrad(pt, 18);
@@ -80,9 +98,8 @@ void TopologyWidget::paintEvent(QPaintEvent *event) {
         painter.setPen(QPen(Theme::OpsBorder, 1));
         painter.drawEllipse(pt, 12, 12);
         
-        // Icon
-        QPixmap pm = Theme::tintedSvgPixmap(iconPath, 14, color);
-        painter.drawPixmap(pt.x() - 7, pt.y() - 7, pm);
+        // Icon (pre-tinted and cached — never re-rasterized per frame)
+        painter.drawPixmap(pt.x() - 7, pt.y() - 7, icon);
         
         // Label
         painter.setPen(Theme::OpsTextDim);
@@ -94,13 +111,13 @@ void TopologyWidget::paintEvent(QPaintEvent *event) {
     };
 
     if (m_isGateway) {
-        drawNode(pt1, Theme::OpsAccentTeal, 0.0, ":/resources/traffic.svg", "DEVICES");
-        drawNode(pt2, Theme::OpsAccentGreen, 2.0, ":/resources/monitor.svg", "THIS HOST");
-        drawNode(pt3, Theme::OpsTextDim, 4.0, ":/resources/router.svg", "GATEWAY");
+        drawNode(pt1, Theme::OpsAccentTeal,  0.0, m_iconCache[0], "DEVICES");
+        drawNode(pt2, Theme::OpsAccentGreen, 2.0, m_iconCache[1], "THIS HOST");
+        drawNode(pt3, Theme::OpsTextDim,     4.0, m_iconCache[2], "GATEWAY");
     } else {
-        drawNode(pt1, Theme::OpsAccentGreen, 0.0, ":/resources/monitor.svg", "THIS HOST");
-        drawNode(pt2, Theme::OpsAccentTeal, 2.0, ":/resources/router.svg", "GATEWAY");
-        drawNode(pt3, Theme::OpsTextDim, 4.0, ":/resources/wifi.svg", "INTERNET");
+        drawNode(pt1, Theme::OpsAccentGreen, 0.0, m_iconCache[0], "THIS HOST");
+        drawNode(pt2, Theme::OpsAccentTeal,  2.0, m_iconCache[1], "GATEWAY");
+        drawNode(pt3, Theme::OpsTextDim,     4.0, m_iconCache[2], "INTERNET");
     }
 }
 

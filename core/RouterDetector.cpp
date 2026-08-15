@@ -11,6 +11,7 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <QElapsedTimer>
+#include <QSslSocket>
 // Networking
 #include <sys/socket.h>
 #include <sys/select.h>
@@ -270,8 +271,10 @@ bool RouterDetector::tcpConnect(const QString &ip, int port, int timeoutMs) cons
 //  Raw HTTP GET (plain TCP, no TLS — for banner grabbing on 80/8080)
 // ─────────────────────────────────────────────────────────────────────────────
 QString RouterDetector::fetchUrl(const QString &host, int port,
-                                  const QString &path, bool /*useTls*/,
+                                  const QString &path, bool useTls,
                                   int timeoutMs) const {
+    if (useTls) return fetchUrlTls(host, port, path, timeoutMs);
+
     int s = ::socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return {};
 
@@ -323,12 +326,51 @@ QString RouterDetector::fetchUrl(const QString &host, int port,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  HTTPS GET (real TLS handshake) — for banner grabbing on 443/8443.
+//  Router admin certs are almost always self-signed, so peer verification
+//  is intentionally disabled here; this is banner-grabbing, not a trust
+//  decision, and previously HTTPS-only admin UIs (increasingly common on
+//  modern hardware) were silently skipped because the plain-TCP path just
+//  received undecodable TLS handshake bytes and gave up.
+// ─────────────────────────────────────────────────────────────────────────────
+QString RouterDetector::fetchUrlTls(const QString &host, int port,
+                                     const QString &path, int timeoutMs) const {
+    QSslSocket sock;
+    sock.setPeerVerifyMode(QSslSocket::VerifyNone);
+    sock.connectToHostEncrypted(host, (quint16)port);
+    if (!sock.waitForEncrypted(timeoutMs)) return {};
+
+    QByteArray req = QString("GET %1 HTTP/1.0\r\nHost: %2\r\nConnection: close\r\n\r\n")
+                         .arg(path, host).toLatin1();
+    sock.write(req);
+    if (!sock.waitForBytesWritten(timeoutMs)) return {};
+
+    QByteArray resp;
+    QElapsedTimer deadline;
+    deadline.start();
+    while (deadline.elapsed() < timeoutMs && resp.size() < 8192) {
+        if (!sock.waitForReadyRead(200)) {
+            if (sock.state() != QAbstractSocket::ConnectedState) break;
+            continue;
+        }
+        resp += sock.readAll();
+    }
+    return QString::fromLatin1(resp.left(8192));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Layer 1: HTTP Banner Grab
 // ─────────────────────────────────────────────────────────────────────────────
 void RouterDetector::probeHTTP(RouterInfo &info) {
-    const QList<int> ports = {80, 8080, 443, 8443};
-    for (int port : ports) {
-        QString resp = fetchUrl(info.gatewayIp, port, "/", false, 2000);
+    struct PortDef { int port; bool tls; };
+    const QList<PortDef> ports = {
+        {80,   false},
+        {8080, false},
+        {443,  true},
+        {8443, true},
+    };
+    for (const auto &pd : ports) {
+        QString resp = fetchUrl(info.gatewayIp, pd.port, "/", pd.tls, 2000);
         if (resp.isEmpty()) continue;
 
         info.httpBanner = resp.left(2000);
@@ -360,12 +402,18 @@ void RouterDetector::probeHTTP(RouterInfo &info) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Layer 2: SSDP / UPnP
+//  An M-SEARCH is a multicast broadcast — every UPnP device on the LAN
+//  (smart TVs, printers, media servers, consoles…) can answer it, not just
+//  the router. Only trusting whichever reply arrives first risks identifying
+//  a random device instead of the gateway. We keep reading replies for the
+//  full timeout window and only act on the one whose source IP matches the
+//  gateway we were asked to probe.
 // ─────────────────────────────────────────────────────────────────────────────
 void RouterDetector::probeSSDPUPnP(RouterInfo &info) {
     int s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s < 0) return;
 
-    struct timeval tv{ 2, 0 };
+    struct timeval tv{ 0, 250000 }; // short per-call timeout; we loop until the deadline
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     QByteArray msearch =
@@ -383,15 +431,29 @@ void RouterDetector::probeSSDPUPnP(RouterInfo &info) {
     ::sendto(s, msearch.constData(), msearch.size(), 0,
              (struct sockaddr*)&mcast, sizeof(mcast));
 
-    char buf[4096];
-    struct sockaddr_in from{};
-    socklen_t fromLen = sizeof(from);
-    int n = ::recvfrom(s, buf, sizeof(buf)-1, 0, (struct sockaddr*)&from, &fromLen);
-    ::close(s);
-    if (n <= 0) return;
+    struct in_addr gwBin{};
+    inet_pton(AF_INET, info.gatewayIp.toLatin1().constData(), &gwBin);
 
-    buf[n] = '\0';
-    QString ssdpResp = QString::fromLatin1(buf, n);
+    QString ssdpResp;
+    char buf[4096];
+    QElapsedTimer deadline;
+    deadline.start();
+    while (deadline.elapsed() < 2200) { // matches the MX:2 delay window, plus slack
+        struct sockaddr_in from{};
+        socklen_t fromLen = sizeof(from);
+        int n = ::recvfrom(s, buf, sizeof(buf)-1, 0, (struct sockaddr*)&from, &fromLen);
+        if (n <= 0) continue; // timed out this pass, or no data yet — keep waiting for the deadline
+
+        if (from.sin_addr.s_addr == gwBin.s_addr) {
+            buf[n] = '\0';
+            ssdpResp = QString::fromLatin1(buf, n);
+            break; // found the gateway's own reply — stop, don't keep waiting
+        }
+        // Reply from some other device on the LAN — ignore it and keep listening
+    }
+    ::close(s);
+    if (ssdpResp.isEmpty()) return;
+
     info.ssdpResponse = ssdpResp.left(1500);
     info.caps.hasUPnP = true;
 
@@ -470,9 +532,14 @@ void RouterDetector::probeMDNS(RouterInfo &info) {
              (struct sockaddr*)&mdns, sizeof(mdns));
 
     char buf[2048];
-    int n = ::recv(s, buf, sizeof(buf)-1, 0);
+    struct sockaddr_in from{};
+    socklen_t fromLen = sizeof(from);
+    int n = ::recvfrom(s, buf, sizeof(buf)-1, 0, (struct sockaddr*)&from, &fromLen);
     ::close(s);
-    if (n > 12) {
+
+    struct in_addr gwBin{};
+    inet_pton(AF_INET, info.gatewayIp.toLatin1().constData(), &gwBin);
+    if (n > 12 && from.sin_addr.s_addr == gwBin.s_addr) {
         // Just record that we got a response; hostname resolution is handled by step4_fingerprint
         info.mdnsInfo = QString("mDNS responded (%1 bytes)").arg(n);
     }
@@ -535,8 +602,13 @@ void RouterDetector::probeSNMP(RouterInfo &info) {
                  (struct sockaddr*)&target, sizeof(target));
 
         char buf[2048];
-        int n = ::recv(s, buf, sizeof(buf)-1, 0);
+        struct sockaddr_in from{};
+        socklen_t fromLen = sizeof(from);
+        int n = ::recvfrom(s, buf, sizeof(buf)-1, 0, (struct sockaddr*)&from, &fromLen);
         ::close(s);
+
+        // Only trust a reply that actually came from the gateway we asked
+        if (n > 0 && from.sin_addr.s_addr != target.sin_addr.s_addr) continue;
 
         if (n > 0) {
             QByteArray resp(buf, n);

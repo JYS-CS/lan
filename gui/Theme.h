@@ -171,6 +171,11 @@ inline QPixmap tintedSvgPixmap(const QString &resourcePath, int size, const QCol
     QString svgText = QString::fromUtf8(file.readAll());
     static const QRegularExpression colorRe("(stroke|fill)=\"#[0-9a-fA-F]{3,8}\"");
     svgText.replace(colorRe, QString("\\1=\"%1\"").arg(color.name()));
+    // Some icon sets (Lucide/Feather-derived) use stroke="currentColor" instead of
+    // a literal hex value, relying on CSS inheritance that doesn't exist in this
+    // standalone rendering context — resolve it explicitly or it renders unstyled.
+    static const QRegularExpression currentColorRe("(stroke|fill)=\"currentColor\"");
+    svgText.replace(currentColorRe, QString("\\1=\"%1\"").arg(color.name()));
 
     QSvgRenderer renderer(svgText.toUtf8());
     QPainter painter(&pixmap);

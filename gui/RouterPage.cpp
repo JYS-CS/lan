@@ -298,11 +298,6 @@ void RouterPage::setupUi() {
     midRow->addWidget(capCard, 1);
     cv->addLayout(midRow);
 
-    // ──── Raw Probes Accordion ─────────────────────────────────────────────────
-    auto *rawTitle = new QLabel("RAW PROBE DATA", content);
-    rawTitle->setStyleSheet("font-size: 9px; font-weight: 700; color: #4a5068; letter-spacing: 0.1em; margin-top: 4px;");
-    cv->addWidget(rawTitle);
-
     // ──── Security Risk Bar ────────────────────────────────────────────────────
     m_secRiskBar = new QFrame(content);
     m_secRiskBar->setObjectName("SectionCard");

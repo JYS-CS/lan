@@ -142,6 +142,8 @@ private:
     // UPnP XML fetch
     QString fetchUrl(const QString &host, int port, const QString &path,
                      bool useTls = false, int timeoutMs = 2000) const;
+    QString fetchUrlTls(const QString &host, int port, const QString &path,
+                        int timeoutMs) const;
     void parseUpnpXml(const QString &xml, RouterInfo &info) const;
 
     // Utilities

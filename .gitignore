@@ -1,6 +1,8 @@
 # Build directories and generated files
 build/
 build-*/
+build3/
+build_new/
 out/
 Makefile
 *.o

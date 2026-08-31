@@ -693,43 +693,153 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     }
 
     QMutexLocker locker(&m_leaseMutex);
-    
+    QDateTime now = QDateTime::currentDateTime();
+
+    // ── INIT-REBOOT / RENEWING path ──────────────────────────────────────────
+    // When clientSelectedServer == 0 the client is either in INIT-REBOOT state
+    // (asserting "I had this IP, is it still valid?") or renewing via ciaddr.
+    //
+    // Old logic: call allocateIP() first, then NAK if the result doesn't match
+    //   the requested IP. This NAKs every reconnecting client whose previous IP
+    //   happens to fall outside our configured pool range, forcing a 60-second
+    //   wait before the client retries with DISCOVER.
+    //
+    // New logic: check for genuine conflicts FIRST.
+    //   • If the requested IP is free → grant it directly (even if outside pool)
+    //     so the device gets its address back immediately.
+    //   • If the requested IP is genuinely held by another client → NAK, then
+    //     immediately follow up with a synthetic OFFER so the client skips the
+    //     60-second retry timer and starts DORA right away.
+    //   • Only fall through to normal allocateIP() when no IP was requested
+    //     (pure RENEWING via ciaddr with matching server-id).
+
     uint32_t reqIpInt = 0;
     if (clientSelectedServer == 0) {
+        // Determine what IP the client is asserting
+        uint32_t assertedIpNet = 0;
         if (requestedIpNet != 0) {
-            reqIpInt = ntohl(requestedIpNet);
+            assertedIpNet = requestedIpNet;
+            reqIpInt      = ntohl(requestedIpNet);
         } else if (req->ciaddr != 0) {
-            reqIpInt = ntohl(req->ciaddr);
+            assertedIpNet = req->ciaddr;
+            reqIpInt      = ntohl(req->ciaddr);
+        }
+
+        if (reqIpInt != 0) {
+            QString reqIpStr = QHostAddress(reqIpInt).toString();
+
+            // Check if any OTHER client actively holds this IP
+            bool conflicting = false;
+            for (auto it = m_leases.constBegin(); it != m_leases.constEnd(); ++it) {
+                if (it.key() == clientMac) continue;
+                if (it.value().ip == reqIpStr && it.value().expiry > now) {
+                    conflicting = true;
+                    break;
+                }
+            }
+
+            if (!conflicting) {
+                // IP is free on our network — grant it regardless of pool range.
+                // This is the correct behaviour for a single-server LAN where
+                // devices may have gotten IPs from the upstream router before we
+                // became the DHCP authority.
+                locker.unlock();
+
+                DHCPLease lease;
+                lease.mac      = clientMac;
+                lease.ip       = reqIpStr;
+                lease.expiry   = now.addSecs(m_config.leaseTimeSeconds);
+
+                uint8_t hostnameBytes[64]{};
+                uint8_t hnLen = getOption(reqOpts, optsLen, 12, hostnameBytes, sizeof(hostnameBytes) - 1);
+                lease.hostname = hnLen > 0
+                                 ? QString::fromUtf8(reinterpret_cast<char*>(hostnameBytes), hnLen)
+                                 : QStringLiteral("Unknown");
+
+                {
+                    QMutexLocker lk2(&m_leaseMutex);
+                    m_leases[clientMac] = lease;
+                }
+                emit leaseUpdated(lease);
+
+                // Build and send ACK for the original requested IP
+                uint32_t ackedIpNetDirect = htonl(reqIpInt);
+                uint32_t ourServerNet     = htonl(m_serverIpInt);
+                uint32_t subnetMaskNet    = htonl(QHostAddress(m_config.subnetMask).toIPv4Address());
+                uint32_t routerNet        = htonl(QHostAddress(m_config.routerIp).toIPv4Address());
+                uint32_t dns1Net          = m_config.dns1.isEmpty()
+                                            ? 0
+                                            : htonl(QHostAddress(m_config.dns1).toIPv4Address());
+                uint32_t leaseTime        = static_cast<uint32_t>(m_config.leaseTimeSeconds);
+
+                uint8_t dhcpPkt[548];
+                size_t  dhcpLen = buildDhcpReply(dhcpPkt, sizeof(dhcpPkt),
+                                                 req, 5 /*ACK*/,
+                                                 ackedIpNetDirect, ourServerNet,
+                                                 subnetMaskNet, routerNet, dns1Net,
+                                                 leaseTime, nullptr);
+
+                static const uint8_t BCAST[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+                bool broadcastBit = (ntohs(req->flags) & 0x8000) != 0;
+                uint8_t  dstMac[6];
+                uint32_t dstIp;
+                if (broadcastBit || req->ciaddr == 0) {
+                    memcpy(dstMac, BCAST, 6);
+                    dstIp = 0xFFFFFFFF;
+                } else {
+                    memcpy(dstMac, clientMacL2, 6);
+                    dstIp = ntohl(req->ciaddr);
+                }
+
+                qDebug() << "[DHCP] INIT-REBOOT ACK (free IP)" << reqIpStr
+                         << "to" << clientMac << "hostname=" << lease.hostname;
+                sendRawDhcpReply(dstMac, dstIp, dhcpPkt, dhcpLen);
+                return;
+
+            } else {
+                // IP is genuinely in use — NAK and immediately send a synthetic
+                // OFFER from our pool so the client starts DORA right away.
+                locker.unlock();
+                qDebug() << "[DHCP] INIT-REBOOT NAK: requested IP" << reqIpStr
+                         << "is in use by another client — NAKing and sending OFFER";
+                sendNak(req, clientMacL2);
+                // Synthesise a DISCOVER so we immediately offer a free pool IP
+                sendOffer(req, reqOpts, optsLen, clientMacL2);
+                return;
+            }
         }
     }
-    
-    QString ackedIpStr = allocateIP(clientMac, reqIpInt);
+
+    uint32_t reqIpIntFallback = 0;
+    if (clientSelectedServer == 0) {
+        if (requestedIpNet != 0) reqIpIntFallback = ntohl(requestedIpNet);
+        else if (req->ciaddr != 0) reqIpIntFallback = ntohl(req->ciaddr);
+    }
+
+    QString ackedIpStr = allocateIP(clientMac, reqIpIntFallback);
     uint32_t ackedIpNet = htonl(QHostAddress(ackedIpStr).toIPv4Address());
 
-    // Check if client is trying to reuse an old IP or renew its current IP (Option 50 or ciaddr)
-    // If they are asking for an IP that doesn't match what we want to give them, we MUST NAK them
-    // so they fall back to DISCOVER. If we blindly ACK with a different IP, they will decline it.
+    // Fallback guard: if for any reason the allocated IP doesn't match what the
+    // client's ciaddr says during a RENEWING request, NAK and follow up.
     if (clientSelectedServer == 0) {
-        if (requestedIpNet != 0) {
-            if (requestedIpNet != ackedIpNet) {
-                locker.unlock();
-                if (m_config.authoritative) {
-                    qDebug() << "[DHCP] Authoritative NAK: client requested wrong IP ("
-                             << QHostAddress(ntohl(requestedIpNet)).toString() << ")";
-                    sendNak(req, clientMacL2);
-                }
-                return;
+        if (requestedIpNet != 0 && requestedIpNet != ackedIpNet) {
+            locker.unlock();
+            if (m_config.authoritative) {
+                qDebug() << "[DHCP] Fallback NAK: pool mismatch for"
+                         << QHostAddress(ntohl(requestedIpNet)).toString();
+                sendNak(req, clientMacL2);
+                sendOffer(req, reqOpts, optsLen, clientMacL2);
             }
-        } else if (req->ciaddr != 0) {
-            if (req->ciaddr != ackedIpNet) {
-                locker.unlock();
-                if (m_config.authoritative) {
-                    qDebug() << "[DHCP] Authoritative NAK: client ciaddr ("
-                             << QHostAddress(ntohl(req->ciaddr)).toString() << ") doesn't match";
-                    sendNak(req, clientMacL2);
-                }
-                return;
+            return;
+        } else if (req->ciaddr != 0 && req->ciaddr != ackedIpNet) {
+            locker.unlock();
+            if (m_config.authoritative) {
+                qDebug() << "[DHCP] Fallback NAK: ciaddr mismatch"
+                         << QHostAddress(ntohl(req->ciaddr)).toString();
+                sendNak(req, clientMacL2);
+                sendOffer(req, reqOpts, optsLen, clientMacL2);
             }
+            return;
         }
     }
 

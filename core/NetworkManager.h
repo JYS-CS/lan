@@ -41,6 +41,7 @@ public slots:
 
 signals:
     void deviceSeen(const QHostAddress &ip, const QString &mac);
+    void hostnameDiscovered(const QHostAddress &ip, const QString &hostname);
     void snifferError(const QString &msg);
 
 private:
@@ -117,6 +118,7 @@ private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
     void onGlobalStats(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
     void onDeviceSeen(const QHostAddress &ip, const QString &mac);
+    void onHostnameDiscovered(const QHostAddress &ip, const QString &hostname);
     void cleanUpStaleDevices();
     void runScan();
 
@@ -176,6 +178,7 @@ private:
 
     QMap<QString, core::TrafficStats> m_latestStats;
     bool m_strictMode = false;
+    std::atomic<bool> m_hostnameResolvingInProgress{false};
 };
 
 } // namespace core

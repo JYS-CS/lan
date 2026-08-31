@@ -34,6 +34,7 @@ bool DatabaseManager::setupSchema() {
                 "hostname TEXT, "
                 "vendor TEXT, "
                 "alias TEXT, "
+                "status TEXT DEFAULT 'Offline', "
                 "is_known INTEGER DEFAULT 0, "
                 "last_seen TEXT)")) {
         qDebug() << "DatabaseManager: Schema error (devices):" << q.lastError().text();
@@ -75,13 +76,14 @@ void DatabaseManager::saveDevice(const Device &d) {
     if (d.mac().isEmpty()) return;
 
     QSqlQuery q(m_db);
-    q.prepare("INSERT OR REPLACE INTO devices (mac, last_ip, hostname, vendor, alias, is_known, last_seen) "
-              "VALUES (:mac, :ip, :host, :vendor, :alias, :known, :seen)");
+    q.prepare("INSERT OR REPLACE INTO devices (mac, last_ip, hostname, vendor, alias, status, is_known, last_seen) "
+              "VALUES (:mac, :ip, :host, :vendor, :alias, :status, :known, :seen)");
     q.bindValue(":mac", d.mac());
     q.bindValue(":ip", d.ip());
     q.bindValue(":host", d.hostname());
     q.bindValue(":vendor", d.vendor());
     q.bindValue(":alias", d.alias());
+    q.bindValue(":status", d.status());
     q.bindValue(":known", d.isKnown() ? 1 : 0);
     q.bindValue(":seen", d.lastSeen().toString(Qt::ISODate));
 
@@ -102,8 +104,13 @@ void DatabaseManager::removeDevice(const QString &ip) {
 
 QList<Device> DatabaseManager::getAllDevices() {
     QList<Device> list;
+    // Use ALTER TABLE to add the status column for existing DBs that predate this change
+    QSqlQuery migrate(m_db);
+    migrate.exec("ALTER TABLE devices ADD COLUMN status TEXT DEFAULT 'Offline'");
+    // Ignore error — it just means the column already exists
+
     QSqlQuery q("SELECT * FROM devices", m_db);
-    
+
     while (q.next()) {
         Device d;
         d.setMac(q.value("mac").toString());
@@ -111,8 +118,13 @@ QList<Device> DatabaseManager::getAllDevices() {
         d.setHostname(q.value("hostname").toString());
         d.setVendor(q.value("vendor").toString());
         d.setAlias(q.value("alias").toString());
+        // Load persisted status; treat empty/null as Offline so startup is conservative
+        QString st = q.value("status").toString();
+        d.setStatus(st.isEmpty() ? "Offline" : st);
         d.setIsKnown(q.value("is_known").toInt() == 1);
-        d.setLastSeen(QDateTime::fromString(q.value("last_seen").toString(), Qt::ISODate));
+        QDateTime seen = QDateTime::fromString(q.value("last_seen").toString(), Qt::ISODate);
+        // If DB has a valid timestamp, use it; otherwise mark as epoch so cleanup fires quickly
+        d.setLastSeen(seen.isValid() ? seen : QDateTime::fromSecsSinceEpoch(0));
         list.append(d);
     }
     return list;

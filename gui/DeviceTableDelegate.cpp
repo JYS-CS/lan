@@ -1,5 +1,6 @@
 #include "DeviceTableDelegate.h"
 #include "DeviceTableModel.h"
+#include "AppSettings.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QFontDatabase>
@@ -9,6 +10,8 @@ namespace gui {
 
 DeviceTableDelegate::DeviceTableDelegate(QObject *parent) : QStyledItemDelegate(parent) {
     loadFonts();
+    m_svgOnline  = new QSvgRenderer(QString(":/resources/wifi_online.svg"),  this);
+    m_svgOffline = new QSvgRenderer(QString(":/resources/wifi_offline.svg"), this);
 }
 
 void DeviceTableDelegate::loadFonts() {
@@ -17,19 +20,19 @@ void DeviceTableDelegate::loadFonts() {
     QFontDatabase::addApplicationFont(":/resources/Inter-Regular.ttf");
     QFontDatabase::addApplicationFont(":/resources/Inter-Bold.ttf");
     
-    m_monoFont = QFont("JetBrains Mono", 10);
+    m_monoFont = QFont("JetBrains Mono", 11);
     m_monoFont.setStyleHint(QFont::Monospace);
     
     m_boldMonoFont = m_monoFont;
     m_boldMonoFont.setBold(true);
     
-    m_standardFont = QFont("Inter", 10);
+    m_standardFont = QFont("Inter", 11);
     m_standardFont.setStyleHint(QFont::SansSerif);
 }
 
 QSize DeviceTableDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
-    size.setHeight(48);
+    size.setHeight(64);
     return size;
 }
 
@@ -92,63 +95,73 @@ void DeviceTableDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
         }
         case DeviceTableModel::ColUp:
         case DeviceTableModel::ColDown: {
-            qreal maxBw = index.data(DeviceTableModel::MaxBwRole).toReal();
-            qreal rawBw = index.data(DeviceTableModel::RawDataRole).toReal();
-            
-            if (maxBw > 0 && rawBw > 0) {
-                double ratio = rawBw / maxBw;
-                int barWidth = (contentRect.width() - 10) * ratio;
-                if (barWidth > 0) {
-                    QRect barRect(contentRect.left(), contentRect.center().y() - 12, barWidth, 24);
-                    QPainterPath barPath;
-                    barPath.addRoundedRect(barRect, 4, 4);
-                    QColor barColor = (index.column() == DeviceTableModel::ColUp) ? QColor(79, 127, 255, 30) : QColor(52, 228, 160, 30);
-                    painter->fillPath(barPath, barColor);
+            bool isUp = (index.column() == DeviceTableModel::ColUp);
+            QColor barColor = isUp ? QColor(79, 127, 255) : QColor(52, 228, 160);
+
+            if (AppSettings::instance()->showSparklines()) {
+                // Fetch spike history
+                QList<qreal> history = (isUp
+                    ? index.data(DeviceTableModel::UpHistoryRole)
+                    : index.data(DeviceTableModel::DownHistoryRole))
+                    .value<QList<qreal>>();
+
+                if (history.isEmpty()) {
+                    qreal raw = index.data(DeviceTableModel::RawDataRole).toReal();
+                    history.append(raw);
                 }
+
+                qreal localMax = 1.0;
+                for (qreal v : history) localMax = qMax(localMax, v);
+
+                int n = history.size();
+                int totalW = contentRect.width() - 4;
+                int barW = qMax(2, (totalW / n) - 2);
+                int gap  = qMax(1, (totalW - n * barW) / qMax(1, n - 1));
+                int maxH = contentRect.height() - 12;
+                int baseY = contentRect.bottom() - 6;
+
+                for (int i = 0; i < n; ++i) {
+                    qreal ratio = history[i] / localMax;
+                    int h = qMax(2, (int)(maxH * ratio));
+                    int x = contentRect.left() + 2 + i * (barW + gap);
+                    int y = baseY - h;
+
+                    QLinearGradient grad(x, y, x, baseY);
+                    QColor top = barColor; top.setAlpha(220);
+                    QColor bot = barColor; bot.setAlpha(60);
+                    grad.setColorAt(0.0, top);
+                    grad.setColorAt(1.0, bot);
+
+                    QPainterPath bar;
+                    bar.addRoundedRect(QRectF(x, y, barW, h), 1.5, 1.5);
+                    painter->setPen(Qt::NoPen);
+                    painter->setBrush(grad);
+                    painter->drawPath(bar);
+                }
+            } else {
+                painter->setFont(m_monoFont);
+                painter->setPen(barColor);
+                painter->drawText(contentRect, Qt::AlignLeft | Qt::AlignVCenter, text);
             }
-            
-            painter->setFont(m_monoFont);
-            painter->setPen((index.column() == DeviceTableModel::ColUp) ? Theme::AccentBlue : Theme::OpsTextDim);
-            painter->drawText(contentRect, Qt::AlignLeft | Qt::AlignVCenter, text);
             break;
         }
         case DeviceTableModel::ColStatus: {
             QString s = text.toLower();
-            QColor accent;
-            if (s.contains("online") || s.contains("self")) accent = Theme::OpsAccentGreen;
-            else if (s.contains("idle") || s.contains("gateway")) accent = Theme::OpsAccentTeal;
-            else accent = Theme::OpsTextFaint;
+            bool isOnline = s.contains("self") || s.contains("online")
+                         || s.contains("gateway") || s.contains("idle");
 
-            QFont pillFont = m_standardFont;
-            pillFont.setPointSize(9);
-            pillFont.setBold(true);
-            QFontMetrics fm(pillFont);
-            
-            int padding = 8;
-            int dotSize = 6;
-            int spacing = 6;
-            int textW = fm.horizontalAdvance(text.toUpper());
-            int pillWidth = padding + dotSize + spacing + textW + padding;
-            
-            QRect pillRect(contentRect.left(), contentRect.center().y() - 12, pillWidth, 24);
-            QPainterPath pillPath;
-            pillPath.addRoundedRect(pillRect, 12, 12);
-            
-            QColor bgColor = accent;
-            bgColor.setAlpha(25);
-            painter->fillPath(pillPath, bgColor);
-            painter->setPen(QPen(QColor(accent.red(), accent.green(), accent.blue(), 60), 0.5));
-            painter->drawPath(pillPath);
-            
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(accent);
-            painter->drawEllipse(pillRect.left() + padding, pillRect.center().y() - dotSize/2, dotSize, dotSize);
-            
-            painter->setPen(accent);
-            painter->setFont(pillFont);
-            QRect textRect(pillRect.left() + padding + dotSize + spacing, pillRect.top(), textW, pillRect.height());
-            painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text.toUpper());
-            
+            QSvgRenderer *renderer = isOnline ? m_svgOnline : m_svgOffline;
+
+            // Centre the icon in the cell; keep it square at ~26×26 px
+            constexpr int iconSize = 26;
+            int cx = contentRect.left() + iconSize / 2 + 4;
+            int cy = contentRect.center().y();
+            QRect iconRect(cx - iconSize / 2, cy - iconSize / 2, iconSize, iconSize);
+
+            if (renderer && renderer->isValid()) {
+                renderer->render(painter, iconRect);
+            }
+
             break;
         }
         case DeviceTableModel::ColVendor: {

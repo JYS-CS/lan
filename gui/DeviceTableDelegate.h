@@ -2,6 +2,7 @@
 
 #include <QStyledItemDelegate>
 #include <QFont>
+#include <QSvgRenderer>
 #include "Theme.h"
 
 namespace gui {
@@ -19,7 +20,10 @@ private:
     QFont m_monoFont;
     QFont m_boldMonoFont;
     QFont m_standardFont;
-    
+
+    QSvgRenderer *m_svgOnline  = nullptr;  // green wifi
+    QSvgRenderer *m_svgOffline = nullptr;  // red wifi + slash
+
     void loadFonts();
 };
 

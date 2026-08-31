@@ -138,6 +138,10 @@ void MainWindow::setupUI() {
     m_routerPage = new RouterPage(m_networkManager, this);
     m_centralStacked->addWidget(m_routerPage);
 
+    // Page 6: Settings Page
+    m_settingsPage = new SettingsPage(this);
+    m_centralStacked->addWidget(m_settingsPage);
+
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
     setCentralWidget(m_centralStacked);
@@ -274,8 +278,11 @@ void MainWindow::setupToolBar() {
         "border: 0.5px solid rgba(255,255,255,0.1); }"
     );
     hLayout->addWidget(m_dhcpBadge);
-    
+    hLayout->addSpacing(8);
     hLayout->addWidget(createDivider());
+    
+    // Settings Button
+    hLayout->addWidget(createNavBtn("", ":/resources/settings.svg", 6));
 
 
 

@@ -3,11 +3,14 @@
 #include <QMenu>
 #include <QInputDialog>
 #include "Theme.h"
+#include "AppSettings.h"
 
 namespace gui {
 
 DeviceTable::DeviceTable(QWidget *parent) : QTableView(parent) {
     initTable();
+    applySettings();
+    connect(AppSettings::instance(), &AppSettings::settingsChanged, this, &DeviceTable::applySettings);
 }
 
 void DeviceTable::initTable() {
@@ -116,6 +119,14 @@ void DeviceTable::onRenameRequested(const QString &mac, const QString &oldAlias)
     if (ok && !text.isEmpty()) {
         emit aliasRequested(mac, text);
     }
+}
+
+void DeviceTable::applySettings() {
+    AppSettings *cfg = AppSettings::instance();
+    setColumnHidden(DeviceTableModel::ColUp, !cfg->showUploadColumn());
+    setColumnHidden(DeviceTableModel::ColDown, !cfg->showDownloadColumn());
+    // Force the delegate to repaint with current sparklines setting
+    viewport()->update();
 }
 
 } // namespace gui

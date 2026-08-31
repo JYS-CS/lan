@@ -28,6 +28,7 @@ signals:
 private slots:
     void onCustomContextMenu(const QPoint &pos);
     void onRenameRequested(const QString &mac, const QString &oldAlias);
+    void applySettings();
 
 private:
     DeviceTableModel *m_model;

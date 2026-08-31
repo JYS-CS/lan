@@ -47,6 +47,9 @@ add_executable(LANMonitor
     gui/TrafficPage.cpp
     gui/StartupModePage.cpp
     gui/StartupModePage.h
+    gui/AppSettings.cpp
+    gui/ToggleSwitch.cpp
+    gui/SettingsPage.cpp
     gui/PortScanDialog.cpp
     gui/PortScanDialog.h
     core/DatabaseManager.cpp
@@ -55,6 +58,8 @@ add_executable(LANMonitor
     core/PortScanner.h
     core/Types.h
     core/NetworkManager.h
+    core/HostnameResolver.cpp
+    core/HostnameResolver.h
     core/RouterDetector.h
     core/RouterDetector.cpp
     resources.qrc

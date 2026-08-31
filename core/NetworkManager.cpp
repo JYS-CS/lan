@@ -4,6 +4,7 @@
 #include "NetworkManager.h"
 #include "DatabaseManager.h"
 #include "RouterDetector.h"
+#include "HostnameResolver.h"
 
 // Qt
 #include <QNetworkInterface>
@@ -212,8 +213,7 @@ void PassiveSniffer::processPacket(const unsigned char *pkt, int len) {
     uint16_t ethtype = (pkt[12] << 8) | pkt[13];
 
     if (ethtype == 0x0806 && len >= 28) {
-        // ARP
-        // Sender IP at offset 28, Sender MAC at offset 22
+        // ARP — extract sender IP and MAC
         const unsigned char *senderMac = pkt + 22;
         const unsigned char *senderIp  = pkt + 28;
         QHostAddress ip(QString("%1.%2.%3.%4")
@@ -223,8 +223,8 @@ void PassiveSniffer::processPacket(const unsigned char *pkt, int len) {
             emit deviceSeen(ip, mac);
         }
     }
-    // mDNS / NetBIOS / SSDP — just extract source MAC/IP from IP header
     else if (ethtype == 0x0800 && len >= 34) {
+        // IPv4 — extract source MAC/IP for presence detection
         const unsigned char *srcMac = pkt + 6;
         const unsigned char *srcIp  = pkt + 26;
         QHostAddress ip(QString("%1.%2.%3.%4")
@@ -233,8 +233,125 @@ void PassiveSniffer::processPacket(const unsigned char *pkt, int len) {
         if (!ip.isNull() && !mac.startsWith("00:00:00") && !mac.startsWith("ff:ff:ff")) {
             emit deviceSeen(ip, mac);
         }
+
+        // ── Passive hostname extraction from UDP protocols ─────────────────
+        // IP header length (IHL field in bytes)
+        int ipHdrLen = (pkt[14] & 0x0F) * 4;
+        int ipProto  =  pkt[23]; // Protocol field
+
+        if (ipProto == 17 && len >= 14 + ipHdrLen + 8) { // UDP
+            const unsigned char *udp = pkt + 14 + ipHdrLen;
+            uint16_t srcPort = (uint16_t)((udp[0] << 8) | udp[1]);
+            uint16_t dstPort = (uint16_t)((udp[2] << 8) | udp[3]);
+            const unsigned char *udpPayload = udp + 8;
+            int payloadLen = len - (14 + ipHdrLen + 8);
+
+            // ── mDNS (UDP port 5353) ─────────────────────────────────────
+            // We listen for mDNS *responses* (QR=1) that contain PTR or A answers.
+            if ((srcPort == 5353 || dstPort == 5353) && payloadLen >= 12) {
+                // QR bit = bit 15 of flags (byte 2 of DNS header)
+                bool isResponse = (udpPayload[2] & 0x80) != 0;
+                if (isResponse) {
+                    uint16_t anCount = (uint16_t)((udpPayload[6] << 8) | udpPayload[7]);
+                    uint16_t qdCount = (uint16_t)((udpPayload[4] << 8) | udpPayload[5]);
+
+                    if (anCount > 0) {
+                        // Skip question section
+                        int offset = 12;
+                        for (int q = 0; q < qdCount && offset < payloadLen; ++q) {
+                            // Skip labels
+                            while (offset < payloadLen) {
+                                unsigned char labelLen = udpPayload[offset];
+                                if (labelLen == 0) { ++offset; break; }
+                                if ((labelLen & 0xC0) == 0xC0) { offset += 2; break; }
+                                offset += 1 + labelLen;
+                            }
+                            offset += 4; // QTYPE + QCLASS
+                        }
+
+                        // Parse answer records for PTR (12) and A (1) types
+                        for (int a = 0; a < anCount && offset < payloadLen; ++a) {
+                            // Skip NAME
+                            int nameStart = offset;
+                            while (offset < payloadLen) {
+                                unsigned char l = udpPayload[offset];
+                                if (l == 0) { ++offset; break; }
+                                if ((l & 0xC0) == 0xC0) { offset += 2; break; }
+                                offset += 1 + l;
+                            }
+                            if (offset + 10 > payloadLen) break;
+                            Q_UNUSED(nameStart)
+
+                            uint16_t rtype  = (uint16_t)((udpPayload[offset] << 8) | udpPayload[offset+1]); offset += 2;
+                            offset += 2; // CLASS
+                            offset += 4; // TTL
+                            uint16_t rdlen  = (uint16_t)((udpPayload[offset] << 8) | udpPayload[offset+1]); offset += 2;
+
+                            if (rtype == 12 && rdlen > 1) { // PTR record → hostname
+                                // Parse the PTR target name
+                                int rdStart = offset;
+                                QString name;
+                                int cur = rdStart;
+                                bool first = true;
+                                while (cur < payloadLen && (int)(cur - rdStart) < rdlen) {
+                                    unsigned char l = udpPayload[cur];
+                                    if (l == 0) break;
+                                    if ((l & 0xC0) == 0xC0) break; // compression - skip
+                                    ++cur;
+                                    if (cur + l > payloadLen) break;
+                                    if (!first) name += '.';
+                                    first = false;
+                                    name += QString::fromLatin1(reinterpret_cast<const char *>(udpPayload + cur), l);
+                                    cur += l;
+                                }
+                                // Strip service type labels (e.g. ._tcp.local)
+                                // Keep only the instance name (first label) if it's the device name
+                                int dotPos = name.indexOf('.');
+                                if (dotPos > 0) name = name.left(dotPos);
+                                if (!name.isEmpty() && !name.startsWith('_')) {
+                                    emit hostnameDiscovered(ip, name);
+                                }
+                            }
+                            else if (rtype == 28 || rtype == 1) {
+                                // AAAA or A record — owner IP is source IP which we already have
+                                // Nothing extra needed
+                            }
+                            offset += rdlen;
+                        }
+                    }
+                }
+            }
+
+            // ── NBNS response (source port 137) ──────────────────────────
+            // We only parse NBNS *responses* to avoid wasting CPU on broadcasts.
+            else if (srcPort == 137 && payloadLen > 57) {
+                // QR=1 and RCODE=0
+                if ((udpPayload[2] & 0x80) && ((udpPayload[3] & 0x0F) == 0)) {
+                    int numNames = (int)udpPayload[56];
+                    if (numNames > 0 && 57 + numNames * 18 <= payloadLen) {
+                        for (int i = 0; i < numNames; ++i) {
+                            const unsigned char *entry = udpPayload + 57 + i * 18;
+                            char raw[16] = {};
+                            memcpy(raw, entry, 15);
+                            raw[15] = '\0';
+                            uint16_t flags = (uint16_t)((entry[16] << 8) | entry[17]);
+                            bool isGroup    = (flags & 0x8000) != 0;
+                            unsigned char suffix = entry[15];
+                            if (isGroup) continue;
+                            QString name = QString::fromLatin1(raw).trimmed();
+                            if (name.isEmpty() || name == "*") continue;
+                            if (suffix == 0x00) { // Workstation suffix — best match
+                                emit hostnameDiscovered(ip, name);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
+
 
 // ============================================================
 // NetworkManager — constructor / destructor
@@ -338,17 +455,18 @@ void NetworkManager::activate() {
         m_snifferThread = new QThread(this);
         m_sniffer->moveToThread(m_snifferThread);
         connect(m_snifferThread, &QThread::started,  m_sniffer, &PassiveSniffer::start);
-        connect(m_sniffer, &PassiveSniffer::deviceSeen,   this, &NetworkManager::onDeviceSeen,   Qt::QueuedConnection);
-        connect(m_sniffer, &PassiveSniffer::snifferError, this, &NetworkManager::scanError,       Qt::QueuedConnection);
+        connect(m_sniffer, &PassiveSniffer::deviceSeen,        this, &NetworkManager::onDeviceSeen,        Qt::QueuedConnection);
+        connect(m_sniffer, &PassiveSniffer::hostnameDiscovered, this, &NetworkManager::onHostnameDiscovered, Qt::QueuedConnection);
+        connect(m_sniffer, &PassiveSniffer::snifferError,       this, &NetworkManager::scanError,            Qt::QueuedConnection);
         connect(m_snifferThread, &QThread::finished, m_sniffer, &QObject::deleteLater);
         m_snifferThread->start();
     }
 
-    // Start cleanup timer
+    // Start cleanup timer — fire every 20 s so offline transitions are noticed quickly
     if (!m_cleanupTimer) {
         m_cleanupTimer = new QTimer(this);
         connect(m_cleanupTimer, &QTimer::timeout, this, &NetworkManager::cleanUpStaleDevices);
-        m_cleanupTimer->start(60000);
+        m_cleanupTimer->start(20000);
     }
 
     qDebug() << "[NetworkManager] Activated on interface" << iface;
@@ -511,6 +629,24 @@ void NetworkManager::onDeviceSeen(const QHostAddress &ip, const QString &mac) {
     emit deviceSeen(ip, mac);
 }
 
+void NetworkManager::onHostnameDiscovered(const QHostAddress &ip, const QString &hostname) {
+    if (hostname.isEmpty()) return;
+
+    // Only update devices that are still showing 'Unknown' hostname
+    // (DHCP and active-scan data takes precedence)
+    QMutexLocker lk(&m_resultsMutex);
+    const QString ipStr = ip.toString();
+    if (!m_allDevices.contains(ipStr)) return;
+
+    Device &d = m_allDevices[ipStr];
+    if (d.hostname() != "Unknown") return; // already resolved — don't overwrite
+
+    d.setHostname(hostname);
+    DatabaseManager::instance().saveDevice(d);
+
+    lk.unlock();
+    emit devicesUpdated(m_allDevices.values());
+}
 
 // ============================================================
 // Passive capture for traffic monitor (existing)
@@ -598,22 +734,28 @@ void NetworkManager::cleanUpStaleDevices() {
     QMutexLocker lk(&m_resultsMutex);
     bool changed = false;
     QDateTime now = QDateTime::currentDateTime();
+    QString hostIpStr = QHostAddress(m_myIpAddr).toString();
 
-    auto it = m_allDevices.begin();
-    while (it != m_allDevices.end()) {
-        QString hostIpStr = QHostAddress(m_myIpAddr).toString();
-        
+    for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
+        // Never mark the host machine itself as offline
+        if (it.key() == hostIpStr) continue;
+
+        QString st = it.value().status().toLower();
+
+        // Only transition devices that are currently some variant of "online"
+        // This catches: "Online", "Online (Gateway)", "Online (Self)", etc.
+        if (!st.startsWith("online")) continue;
+        // Never touch blocked devices
+        if (st.contains("block")) continue;
+
         qint64 diff = it.value().lastSeen().secsTo(now);
-        if (diff > 30) {
-            // Uniquely spare the Host device from ever reporting Offline.
-            if (it.value().status().toLower() == "online" && it.value().status() != "Blocked" && it.key() != hostIpStr) {
-                it.value().setStatus("Offline");
-                changed = true;
-            }
+        if (diff > 45) { // 45 s silence = offline
+            it.value().setStatus("Offline");
+            DatabaseManager::instance().saveDevice(it.value()); // persist state
+            changed = true;
         }
-        ++it;
     }
-    
+
     if (changed) emit devicesUpdated(m_allDevices.values());
 }
 
@@ -970,82 +1112,76 @@ void NetworkManager::step3_probeUnconfirmed(const QString &iface, quint32 networ
 }
 
 // ============================================================
-// STEP 4 — Hostname + OS fingerprinting
+// STEP 4 — Multi-layer hostname discovery
+// (mDNS unicast → NBNS → LLMNR → Reverse DNS), fully parallel
 // ============================================================
 void NetworkManager::step4_fingerprint(const QString &iface) {
     Q_UNUSED(iface)
-    emit statusMessage("Step 4/5: Fingerprinting hostnames…");
 
-    QMutexLocker lk(&m_resultsMutex);
-    for (auto &dev : m_allDevices) {
-        if (dev.hostname() != "Unknown") continue;
+    // Guard: only one resolver batch may run at a time.
+    // If a previous scan's step4 is still in progress, skip — the results
+    // will arrive via devicesUpdated once it finishes.
+    bool expected = false;
+    if (!m_hostnameResolvingInProgress.compare_exchange_strong(expected, true))
+        return;
 
-        // NetBIOS NS query (UDP 137)
-        struct sockaddr_in target{};
-        target.sin_family = AF_INET;
-        target.sin_port   = htons(137);
-        inet_pton(AF_INET, dev.ip().toLatin1().constData(), &target.sin_addr);
+    emit statusMessage("Step 4/5: Resolving hostnames (mDNS + NetBIOS + LLMNR + rDNS)…");
 
-        int s = ::socket(AF_INET, SOCK_DGRAM, 0);
-        if (s < 0) continue;
-        struct timeval tv{ 0, 300000 };
-        setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-        // Minimal NetBIOS name query
-        unsigned char nbns[50] = {
-            0xAB, 0xCD,  // Transaction ID
-            0x00, 0x00,  // Flags: query
-            0x00, 0x01,  // Questions: 1
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Ans/Auth/Add RRs
-            0x20,        // Name length (32 encoded bytes)
-            // NetBIOS wildcard name "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-            'C','K','A','A','A','A','A','A','A','A','A','A','A','A','A','A',
-            'A','A','A','A','A','A','A','A','A','A','A','A','A','A','A','A',
-            0x00,        // Terminator
-            0x00, 0x21,  // QTYPE NB_STAT
-            0x00, 0x01,  // QCLASS IN
-        };
-
-        if (::sendto(s, nbns, sizeof(nbns), 0,
-                     (struct sockaddr *)&target, sizeof(target)) > 0) {
-            unsigned char buf[512];
-            socklen_t sl = sizeof(target);
-            int n = ::recvfrom(s, buf, sizeof(buf), 0, (struct sockaddr *)&target, &sl);
-            if (n > 57) {
-                // Parse name from NetBIOS response (offset 57, 15 chars)
-                char name[16] = {};
-                memcpy(name, buf + 57, 15);
-                name[15] = '\0';
-                QString qname = QString::fromLatin1(name).trimmed();
-                if (!qname.isEmpty() && qname != "*")
-                    dev.setHostname(qname);
-            }
-        }
-        ::close(s);
-
-        // mDNS PTR query (UDP 5353)
-        if (dev.hostname() == "Unknown") {
-            struct sockaddr_in mdns{};
-            mdns.sin_family = AF_INET;
-            mdns.sin_port   = htons(5353);
-            inet_pton(AF_INET, "224.0.0.251", &mdns.sin_addr);
-
-            int ms = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-            if (ms >= 0) {
-                struct timeval tv2{ 0, 300000 };
-                setsockopt(ms, SOL_SOCKET, SO_RCVTIMEO, &tv2, sizeof(tv2));
-                // Build reversed IP PTR query e.g. "1.1.168.192.in-addr.arpa"
-                QStringList parts = dev.ip().split(".");
-                if (parts.size() == 4) {
-                    QString ptr = parts[3] + "." + parts[2] + "." + parts[1] + "." + parts[0] + ".in-addr.arpa";
-                    // Simplified mDNS query — just send, parsing full DNS is complex
-                    // We rely on passive sniffer for full mDNS parsing
-                }
-                ::close(ms);
-            }
+    // Snapshot: only probe devices still showing 'Unknown'
+    QList<QString> toProbe;
+    {
+        QMutexLocker lk(&m_resultsMutex);
+        for (const auto &dev : m_allDevices) {
+            if (dev.hostname() == "Unknown")
+                toProbe.append(dev.ip());
         }
     }
+
+    if (toProbe.isEmpty()) {
+        m_hostnameResolvingInProgress = false;
+        return;
+    }
+
+    qDebug() << "[HostnameResolver] Probing" << toProbe.size()
+             << "devices (5 layers in parallel, 1200 ms each)…";
+
+    // All 5 layers run in parallel per device; all devices run in parallel.
+    // Wall-clock ≈ 1200 ms regardless of device count (up to pool limit).
+    HostnameResolver resolver;
+    QMap<QString, QString> results = resolver.resolveAll(toProbe, 1200);
+
+    qDebug() << "[HostnameResolver] Resolved" << results.size() << "/" << toProbe.size();
+
+    // Write results + OUI vendor fallback under a single lock
+    {
+        QMutexLocker lk(&m_resultsMutex);
+        for (const QString &ip : toProbe) {
+            if (!m_allDevices.contains(ip)) continue;
+            Device &d = m_allDevices[ip];
+            if (d.hostname() != "Unknown") continue; // already resolved
+
+            if (results.contains(ip)) {
+                // Protocol resolved a real name
+                d.setHostname(results[ip]);
+            } else {
+                // All 5 layers failed (repeater / dumb IoT / no-protocol device)
+                // Fall back to vendor label so the UI never shows raw "Unknown"
+                QString vendor = d.vendor();
+                if (!vendor.isEmpty() && vendor != "Unknown Vendor") {
+                    // e.g. "TP-Link" → "TP-Link Device"
+                    d.setHostname(vendor + " Device");
+                }
+                // If vendor is also unknown we leave it as-is (passive
+                // sniffer may still pick up a name later from mDNS traffic)
+            }
+            DatabaseManager::instance().saveDevice(d);
+        }
+    }
+
+    m_hostnameResolvingInProgress = false;
+    emit devicesUpdated(m_allDevices.values());
 }
+
 
 // ============================================================
 // MAIN SCAN ENTRY POINT

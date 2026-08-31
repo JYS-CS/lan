@@ -10,6 +10,7 @@
 #include <QMessageBox>
 #include <QTimer>
 #include <QDateTime>
+#include <QPropertyAnimation>
 #include "DeviceTable.h"
 #include "TopologyWidget.h"
 #include "../core/NetworkManager.h"
@@ -22,7 +23,7 @@ class DeviceMonitorPage : public QWidget {
 public:
     explicit DeviceMonitorPage(core::NetworkManager *networkManager, QWidget *parent = nullptr);
     virtual ~DeviceMonitorPage() = default;
-    
+
     DeviceTable* getDeviceTable() const { return m_deviceTable; }
 
 public slots:
@@ -34,6 +35,8 @@ private slots:
     void onSelectionChanged(const QString &ip);
     void onSearchChanged(const QString &text);
     void onExportRequested();
+    void onSearchToggled();
+    void applySettings();
 
 private:
     void setupUi();
@@ -43,23 +46,30 @@ private:
     core::NetworkManager *m_networkManager;
     DeviceTable *m_deviceTable;
     TopologyWidget *m_topologyWidget;
-    
-    QLineEdit *m_searchEdit;
+
+    // Animated search
+    QPushButton  *m_searchBtn;
+    QLineEdit    *m_searchEdit;
+    QPropertyAnimation *m_searchAnim;
+    bool m_searchOpen = false;
+
     QLabel *m_onlineCount;
     QLabel *m_uploadTotal;
     QLabel *m_downloadTotal;
     QLabel *m_unknownCount;
 
-    QLabel *m_gatewayStatus;
+    QWidget *m_uploadCard = nullptr;
+    QWidget *m_downloadCard = nullptr;
+
     QLabel *m_lastUpdatedLabel;
     QLabel *m_totalHostCountLabel;
-    
+
     QTimer *m_footerTimer;
     bool m_liveDotState = false;
     QLabel *m_footerLiveDot;
-    
+
     QDateTime m_lastUpdate;
-    
+
     qreal parseBw(const QString &bwStr);
     QString formatBw(qreal bytesPerSec);
 };

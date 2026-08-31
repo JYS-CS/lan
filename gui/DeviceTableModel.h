@@ -2,9 +2,12 @@
 
 #include <QAbstractTableModel>
 #include <QList>
+#include <QHash>
 #include "../core/Device.h"
 
 namespace gui {
+
+static constexpr int BW_HISTORY_LEN = 14;
 
 class DeviceTableModel : public QAbstractTableModel {
     Q_OBJECT
@@ -20,12 +23,14 @@ public:
         ColVendor,
         ColumnCount
     };
-    
+
     enum Roles {
-        SortRole = Qt::UserRole + 1,
-        RawDataRole = Qt::UserRole + 2,
-        IsHostRole = Qt::UserRole + 3,
-        MaxBwRole = Qt::UserRole + 4
+        SortRole       = Qt::UserRole + 1,
+        RawDataRole    = Qt::UserRole + 2,
+        IsHostRole     = Qt::UserRole + 3,
+        MaxBwRole      = Qt::UserRole + 4,
+        UpHistoryRole  = Qt::UserRole + 5,
+        DownHistoryRole= Qt::UserRole + 6
     };
 
     explicit DeviceTableModel(QObject *parent = nullptr);
@@ -42,7 +47,11 @@ public:
 private:
     QList<core::Device> m_devices;
     qreal m_maxBw;
-    
+
+    // Rolling bandwidth history keyed by MAC: list of up to BW_HISTORY_LEN values (bytes/s)
+    QHash<QString, QList<qreal>> m_upHistory;
+    QHash<QString, QList<qreal>> m_downHistory;
+
     qreal parseBandwidth(const QString &bwStr) const;
     void recalculateMaxBw();
 };

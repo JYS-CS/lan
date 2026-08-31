@@ -61,6 +61,7 @@ private:
     void applyTheme();
     void setScanning(bool scanning);
     void populateCapabilities(const core::RouterInfo &info);
+    QWidget* createStatCard(const QString &label, const QString &color, QLabel **countPtr);
 
     core::NetworkManager *m_nm;
 

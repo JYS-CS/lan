@@ -84,11 +84,18 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
     }
     
     if (role == RawDataRole) {
-        // Used to fetch parsed raw BW value for rendering
         if (index.column() == ColUp) return parseBandwidth(dev.upBandwidth());
         if (index.column() == ColDown) return parseBandwidth(dev.downBandwidth());
     }
-    
+
+    if (role == UpHistoryRole) {
+        return QVariant::fromValue(m_upHistory.value(dev.mac()));
+    }
+
+    if (role == DownHistoryRole) {
+        return QVariant::fromValue(m_downHistory.value(dev.mac()));
+    }
+
     return QVariant();
 }
 
@@ -111,6 +118,20 @@ QVariant DeviceTableModel::headerData(int section, Qt::Orientation orientation, 
 void DeviceTableModel::updateDevices(const QList<core::Device> &devices) {
     beginResetModel();
     m_devices = devices;
+
+    // Push new bandwidth samples into rolling history
+    for (const auto &dev : devices) {
+        const QString &mac = dev.mac();
+
+        auto &upH = m_upHistory[mac];
+        upH.append(parseBandwidth(dev.upBandwidth()));
+        if (upH.size() > BW_HISTORY_LEN) upH.removeFirst();
+
+        auto &downH = m_downHistory[mac];
+        downH.append(parseBandwidth(dev.downBandwidth()));
+        if (downH.size() > BW_HISTORY_LEN) downH.removeFirst();
+    }
+
     recalculateMaxBw();
     endResetModel();
 }

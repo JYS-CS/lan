@@ -29,6 +29,8 @@
         <file>resources/vpn.svg</file>
         <file>resources/qos.svg</file>
         <file>resources/wifi.svg</file>
+        <file>resources/wifi_online.svg</file>
+        <file>resources/wifi_offline.svg</file>
         <file>resources/wpa3.svg</file>
         <file>resources/enterprise.svg</file>
         <file>resources/warning.svg</file>

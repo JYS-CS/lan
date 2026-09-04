@@ -1,17 +1,16 @@
 #!/bin/bash
 set -e
 
-# This script builds and runs the LAN Monitor Refactor (Step 3: Clean Architecture)
+# This script builds and runs the LAN Monitor
 # Ensure you are in the project root: ~/LAN/lan-monitor
 
-echo "Building LAN Monitor Step 3 Refactor..."
+echo "Building LAN Monitor..."
 
 cd "/home/falcon/LAN/lan-monitor"
-mkdir -p build
-rm -rf build/CMakeCache.txt build/CMakeFiles
-cd build
-cmake -G Ninja ..
-ninja
+mkdir -p /home/falcon/LAN/mybuild
+cd /home/falcon/LAN/mybuild
+cmake /home/falcon/LAN/lan-monitor -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 
 echo "Build complete."
 echo "Granting raw socket capability (requires sudo once per build)..."

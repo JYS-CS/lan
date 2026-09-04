@@ -126,7 +126,8 @@ private:
     // Packet processing
     void processRawFrame(uint8_t *buf, ssize_t len);
     void processDhcpPacket(DhcpHeader *req, ssize_t dhcpLen,
-                           const uint8_t *clientMacL2);
+                           const uint8_t *clientMacL2,
+                           const uint8_t *ethDst = nullptr);
 
     // Reply builders
     void sendOffer(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,

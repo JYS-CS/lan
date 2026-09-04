@@ -60,6 +60,8 @@ add_executable(LANMonitor
     core/NetworkManager.h
     core/HostnameResolver.cpp
     core/HostnameResolver.h
+    core/MacVendorManager.cpp
+    core/MacVendorManager.h
     core/RouterDetector.h
     core/RouterDetector.cpp
     resources.qrc

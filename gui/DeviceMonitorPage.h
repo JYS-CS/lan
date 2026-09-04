@@ -47,8 +47,9 @@ private:
     DeviceTable *m_deviceTable;
     TopologyWidget *m_topologyWidget;
 
-    // Animated search
+    // Animated search & controls
     QPushButton  *m_searchBtn;
+    QPushButton  *m_refreshBtn;
     QLineEdit    *m_searchEdit;
     QPropertyAnimation *m_searchAnim;
     bool m_searchOpen = false;

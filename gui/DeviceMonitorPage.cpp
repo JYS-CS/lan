@@ -77,15 +77,26 @@ void DeviceMonitorPage::setupUi() {
     m_searchBtn->setIcon(Theme::tintedIcon(":/resources/search.svg", 18, Theme::OpsAccentGreen));
     m_searchBtn->setIconSize(QSize(18, 18));
 
+    // Refresh icon button
+    m_refreshBtn = new QPushButton(this);
+    m_refreshBtn->setObjectName("RefreshBtn");
+    m_refreshBtn->setFixedSize(36, 36);
+    m_refreshBtn->setCursor(Qt::PointingHandCursor);
+    m_refreshBtn->setToolTip("Refresh devices");
+    m_refreshBtn->setIcon(Theme::tintedIcon(":/resources/refresh.svg", 18, Theme::OpsAccentGreen));
+    m_refreshBtn->setIconSize(QSize(18, 18));
+
     // Close search when Escape pressed
     connect(m_searchEdit, &QLineEdit::returnPressed, this, [this]() {
         if (m_searchEdit->text().isEmpty()) onSearchToggled();
     });
 
     connect(m_searchBtn, &QPushButton::clicked, this, &DeviceMonitorPage::onSearchToggled);
+    connect(m_refreshBtn, &QPushButton::clicked, this, &DeviceMonitorPage::onRefreshRequested);
 
     headerLayout->addWidget(m_searchEdit);
     headerLayout->addWidget(m_searchBtn);
+    headerLayout->addWidget(m_refreshBtn);
 
     m_topologyWidget = new TopologyWidget(this);
     headerLayout->addSpacing(12);
@@ -239,6 +250,7 @@ void DeviceMonitorPage::onSearchChanged(const QString &text) {
 void DeviceMonitorPage::onSelectionChanged(const QString &ip) { Q_UNUSED(ip); }
 void DeviceMonitorPage::onExportRequested() {}
 void DeviceMonitorPage::onRefreshRequested() {
+    QMetaObject::invokeMethod(m_networkManager, "clearDevices", Qt::QueuedConnection);
     QMetaObject::invokeMethod(m_networkManager, "runScan", Qt::QueuedConnection);
 }
 
@@ -251,12 +263,12 @@ void DeviceMonitorPage::applyTheme() {
         "QWidget#FooterBar { background-color: #0f141b; border-top: 1px solid #1c232c; }"
         "QWidget#StatCard { background-color: #0f141b; border: 1px solid #1c232c; border-radius: 8px; }"
 
-        // Search icon button — ghost circle style
-        "QPushButton#SearchBtn {"
+        // Search icon button & Refresh button — ghost circle style
+        "QPushButton#SearchBtn, QPushButton#RefreshBtn {"
         "  background: transparent; border: 1px solid #1c232c; border-radius: 18px; }"
-        "QPushButton#SearchBtn:hover {"
+        "QPushButton#SearchBtn:hover, QPushButton#RefreshBtn:hover {"
         "  background: rgba(52,228,160,0.08); border-color: #34e4a0; }"
-        "QPushButton#SearchBtn:pressed { background: rgba(52,228,160,0.15); }"
+        "QPushButton#SearchBtn:pressed, QPushButton#RefreshBtn:pressed { background: rgba(52,228,160,0.15); }"
 
         // Animated search edit
         "QLineEdit#SearchEdit {"

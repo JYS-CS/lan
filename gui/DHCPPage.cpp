@@ -557,19 +557,50 @@ void DHCPPage::onRefreshLeases() {
 void DHCPPage::updateActiveLeases(const QList<core::DHCPLease> &leases) {
     bool countChanged = (m_activeLeasesTable->rowCount() != leases.size());
 
-    m_activeLeasesTable->setRowCount(0);
+    // Update in place to preserve selection and scroll position
+    m_activeLeasesTable->setRowCount(leases.size());
+    
     for (int i = 0; i < leases.size(); ++i) {
-        m_activeLeasesTable->insertRow(i);
         m_activeLeasesTable->setRowHeight(i, 36);
-        auto makeCell = [](const QString &text) {
-            auto *item = new QTableWidgetItem(text);
+        
+        const auto &lease = leases[i];
+        QString expiryStr = lease.expiry.toString("yyyy/MM/dd hh:mm:ss");
+
+        // IP
+        if (!m_activeLeasesTable->item(i, 0)) {
+            auto *item = new QTableWidgetItem(lease.ip);
             item->setTextAlignment(Qt::AlignCenter);
-            return item;
-        };
-        m_activeLeasesTable->setItem(i, 0, makeCell(leases[i].ip));
-        m_activeLeasesTable->setItem(i, 1, makeCell(leases[i].mac));
-        m_activeLeasesTable->setItem(i, 2, makeCell(leases[i].hostname));
-        m_activeLeasesTable->setItem(i, 3, makeCell(leases[i].expiry.toString("yyyy/MM/dd hh:mm:ss")));
+            m_activeLeasesTable->setItem(i, 0, item);
+        } else {
+            m_activeLeasesTable->item(i, 0)->setText(lease.ip);
+        }
+        
+        // MAC
+        if (!m_activeLeasesTable->item(i, 1)) {
+            auto *item = new QTableWidgetItem(lease.mac);
+            item->setTextAlignment(Qt::AlignCenter);
+            m_activeLeasesTable->setItem(i, 1, item);
+        } else {
+            m_activeLeasesTable->item(i, 1)->setText(lease.mac);
+        }
+        
+        // Hostname
+        if (!m_activeLeasesTable->item(i, 2)) {
+            auto *item = new QTableWidgetItem(lease.hostname);
+            item->setTextAlignment(Qt::AlignCenter);
+            m_activeLeasesTable->setItem(i, 2, item);
+        } else {
+            m_activeLeasesTable->item(i, 2)->setText(lease.hostname);
+        }
+        
+        // Expiry
+        if (!m_activeLeasesTable->item(i, 3)) {
+            auto *item = new QTableWidgetItem(expiryStr);
+            item->setTextAlignment(Qt::AlignCenter);
+            m_activeLeasesTable->setItem(i, 3, item);
+        } else {
+            m_activeLeasesTable->item(i, 3)->setText(expiryStr);
+        }
     }
 
     if (countChanged) Theme::fadeIn(m_activeLeasesTable);

@@ -5,6 +5,50 @@
 #include "DatabaseManager.h"
 #include "RouterDetector.h"
 #include "HostnameResolver.h"
+#include "MacVendorManager.h"
+
+// ============================================================
+// Hostname sanity filter
+// Some devices (cheap IoT, generic Android) advertise their
+// IEEE manufacturer name as their DHCP/mDNS hostname, e.g.
+// "SHENZHEN BAOAN GAOKE ELECTRONICS". We reject these so the
+// hostname column stays clean and shows "Unknown" instead.
+// ============================================================
+static bool isManufacturerStyleHostname(const QString &name, const QString &mac = QString()) {
+    if (name.isEmpty()) return false;
+
+    // Strict vendor match check
+    // If we have a MAC address, look up its resolved vendor.
+    // If the hostname contains the vendor name (or vice versa), it's definitely a manufacturer string.
+    if (!mac.isEmpty()) {
+        QString vendor = core::MacVendorManager::instance().lookupVendor(mac);
+        if (!vendor.isEmpty() && vendor != "Unknown Vendor" && vendor != "This Device (Host)") {
+            QString upperName = name.toUpper();
+            QString upperVendor = vendor.toUpper();
+            // We use length > 3 to avoid matching tiny generic vendor names accidentally
+            if (upperVendor.length() > 3 && (upperName.contains(upperVendor) || upperVendor.contains(upperName))) {
+                return true;
+            }
+        }
+    }
+    // All-uppercase with spaces = classic IEEE company name style
+    bool hasSpace  = name.contains(' ');
+    bool allUpper  = std::all_of(name.begin(), name.end(),
+                                 [](QChar c){ return !c.isLetter() || c.isUpper(); });
+    if (hasSpace && allUpper && name.length() > 8) return true;
+
+    // Contains well-known corporate boilerplate
+    static const QStringList kKeywords = {
+        "CO.,LTD", "CO. LTD", "CORP.", "INC.", "GMBH", "LTD", "CO.",
+        "TECHNOLOGIES", "TECHNOLOGY", "ELECTRONICS", "ELECTRONIC", "SEMICONDUCTOR",
+        "ELECTRIC", "INTERNATIONAL", "INDUSTRIAL", "SHENZHEN", "GUANGDONG"
+    };
+    const QString upper = name.toUpper();
+    for (const QString &kw : kKeywords) {
+        if (upper.contains(kw)) return true;
+    }
+    return false;
+}
 
 // Qt
 #include <QNetworkInterface>
@@ -60,84 +104,10 @@ static QString macBytesToString(const unsigned char *b) {
 }
 
 // ============================================================
-// OUI Vendor Lookup (static, top 30 prefixes)
+// OUI Vendor Lookup — delegates to MacVendorManager (3-tier: static/IEEE-CSV/API)
 // ============================================================
-const QHash<QString, QString> &NetworkManager::ouiTable() {
-    static QHash<QString, QString> t = {
-        // Apple
-        {"A4:D1:8C", "Apple"},   {"A8:BE:27", "Apple"},   {"3C:22:FB", "Apple"},
-        {"F0:18:98", "Apple"},   {"DC:A9:04", "Apple"},   {"B8:09:8A", "Apple"},
-        {"00:17:F2", "Apple"},   {"00:1F:5B", "Apple"},
-        // Samsung
-        {"B4:F1:DA", "Samsung"}, {"8C:77:12", "Samsung"}, {"94:D4:69", "Samsung"},
-        {"E8:50:8B", "Samsung"}, {"2C:4D:54", "Samsung"}, {"CC:07:AB", "Samsung"},
-        {"00:12:47", "Samsung"}, {"F4:42:8F", "Samsung"},
-        // Xiaomi
-        {"64:B4:73", "Xiaomi"},  {"F8:A4:5F", "Xiaomi"},  {"28:6C:07", "Xiaomi"},
-        {"50:64:2B", "Xiaomi"},  {"AC:C1:EE", "Xiaomi"},  {"34:CE:00", "Xiaomi"},
-        {"00:9E:C8", "Xiaomi"},  {"D4:97:0B", "Xiaomi"},
-        // Huawei (routers, modems, WiFi AX series)
-        {"74:4A:A4", "Huawei"},  {"B0:E5:ED", "Huawei"},  {"48:46:FB", "Huawei"},
-        {"04:79:70", "Huawei"},  {"A4:BA:DB", "Huawei"},  {"54:89:98", "Huawei"},
-        {"F8:01:13", "Huawei"},  {"10:47:80", "Huawei"},  {"00:46:4B", "Huawei"},
-        {"CC:96:A0", "Huawei"},  {"30:D1:7E", "Huawei"},  {"6C:4B:90", "Huawei"},
-        {"AC:E2:15", "Huawei"},  {"28:31:52", "Huawei"},  {"70:72:3C", "Huawei"},
-        // TP-Link
-        {"50:3E:AA", "TP-Link"}, {"C0:4A:00", "TP-Link"}, {"54:AF:97", "TP-Link"},
-        {"98:DA:C4", "TP-Link"}, {"14:CF:92", "TP-Link"}, {"30:FC:68", "TP-Link"},
-        {"EC:08:6B", "TP-Link"}, {"A0:F3:C1", "TP-Link"}, {"B0:95:8E", "TP-Link"},
-        {"78:44:FD", "TP-Link"}, {"40:3F:8C", "TP-Link"}, {"B8:D5:0B", "TP-Link"},
-        // Netgear
-        {"A0:40:A0", "Netgear"}, {"C4:04:15", "Netgear"}, {"20:4E:7F", "Netgear"},
-        {"00:14:6C", "Netgear"}, {"9C:D3:6D", "Netgear"}, {"28:C6:8E", "Netgear"},
-        {"A4:2B:8C", "Netgear"}, {"C0:3F:0E", "Netgear"},
-        // ASUS
-        {"10:BF:48", "ASUS"},    {"50:46:5D", "ASUS"},    {"04:D4:C4", "ASUS"},
-        {"2C:56:DC", "ASUS"},    {"F8:32:E4", "ASUS"},    {"BC:EE:7B", "ASUS"},
-        {"AC:84:C6", "ASUS"},    {"74:D0:2B", "ASUS"},    {"00:26:18", "ASUS"},
-        // D-Link
-        {"1C:7E:E5", "D-Link"},  {"14:D6:4D", "D-Link"},  {"00:26:5A", "D-Link"},
-        {"B8:A3:86", "D-Link"},  {"F0:7D:68", "D-Link"},  {"C8:D3:A3", "D-Link"},
-        // Linksys / Belkin
-        {"C8:D7:19", "Linksys"}, {"00:25:9C", "Linksys"}, {"20:AA:4B", "Linksys"},
-        {"00:14:BF", "Linksys"}, {"E8:9F:80", "Belkin"},  {"94:44:52", "Belkin"},
-        // Cisco / Meraki
-        {"00:1A:A1", "Cisco"},   {"E8:BA:70", "Cisco"},   {"00:0C:29", "Cisco"},
-        {"00:17:DF", "Cisco"},   {"34:DB:FD", "Cisco"},   {"00:23:5E", "Cisco"},
-        {"E8:65:49", "Cisco Meraki"}, {"88:15:44", "Cisco Meraki"},
-        // Ubiquiti
-        {"24:A4:3C", "Ubiquiti"},{"00:27:22", "Ubiquiti"},{"F0:9F:C2", "Ubiquiti"},
-        {"78:8A:20", "Ubiquiti"},{"E0:63:DA", "Ubiquiti"},{"74:83:C2", "Ubiquiti"},
-        {"DC:9F:DB", "Ubiquiti"},{"68:72:51", "Ubiquiti"},
-        // MikroTik
-        {"4C:5E:0C", "MikroTik"},{"D4:CA:6D", "MikroTik"},{"2C:C8:1B", "MikroTik"},
-        {"B8:69:F4", "MikroTik"},{"18:FD:74", "MikroTik"},{"08:55:31", "MikroTik"},
-        // AVM FRITZ!Box
-        {"C4:86:E9", "AVM"},     {"3C:A6:2F", "AVM"},     {"DC:39:6F", "AVM"},
-        {"9C:C7:A6", "AVM"},     {"E0:28:6D", "AVM"},
-        // Google / Nest
-        {"3C:5A:B4", "Google"},  {"F4:F5:D8", "Google"},  {"54:60:09", "Google"},
-        {"A4:77:33", "Google"},  {"F4:85:27", "Google"},
-        // GL.iNet
-        {"94:83:C4", "GL.iNet"}, {"E4:95:6E", "GL.iNet"},
-        // Synology
-        {"00:11:32", "Synology"},{"BC:24:11", "Synology"},
-        // Raspberry Pi
-        {"B8:27:EB", "Raspberry Pi"}, {"DC:A6:32", "Raspberry Pi"}, {"E4:5F:01", "Raspberry Pi"},
-        // Intel (Wi-Fi cards)
-        {"8C:8D:28", "Intel"},   {"A4:C3:F0", "Intel"},   {"00:21:6A", "Intel"},
-        // Dell
-        {"D4:BE:D9", "Dell"},    {"F8:DB:88", "Dell"},
-        // Sony
-        {"00:1A:80", "Sony"},    {"FC:0F:E6", "Sony"},
-    };
-    return t;
-}
-
 QString NetworkManager::getMacVendor(const QString &mac) {
-    QString p = mac.toUpper();
-    QString oui = p.left(8); // "XX:XX:XX"
-    return ouiTable().value(oui, "Unknown Vendor");
+    return MacVendorManager::instance().lookupVendor(mac);
 }
 
 // macBytesToString is now a file-scope function above (shared with PassiveSniffer)
@@ -360,9 +330,16 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
     // Database
     DatabaseManager::instance().init();
     
-    // Load persisted devices
+    // Load persisted devices — sanitize any stale manufacturer-style hostnames
+    // that may have been stored before the hostname filter was added.
     auto saved = DatabaseManager::instance().getAllDevices();
-    for (const auto &d : saved) {
+    for (auto d : saved) {
+        if (isManufacturerStyleHostname(d.hostname(), d.mac())) {
+            qDebug() << "[NetworkManager] Sanitizing stale DB hostname for"
+                     << d.ip() << ":" << d.hostname();
+            d.setHostname("Unknown");
+            DatabaseManager::instance().saveDevice(d);
+        }
         m_allDevices.insert(d.ip(), d);
     }
 
@@ -391,7 +368,15 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         Device d;
         d.setIp(lease.ip);
         d.setMac(lease.mac);
-        d.setHostname(lease.hostname.isEmpty() ? lease.ip : lease.hostname);
+        // Filter out DHCP hostnames that look like manufacturer/IEEE names.
+        // Some devices send their company name as the DHCP hostname option.
+        QString hostname = lease.hostname;
+        if (isManufacturerStyleHostname(hostname, lease.mac)) {
+            qDebug() << "[NetworkManager] Ignoring manufacturer-style DHCP hostname:"
+                     << hostname << "for" << lease.ip;
+            hostname.clear(); // will fall back to IP below
+        }
+        d.setHostname(hostname.isEmpty() ? "Unknown" : hostname);
         d.setVendor(getMacVendor(lease.mac));
         d.setStatus("Online");
         addDiscoveredDevice(d, /*fromDhcp=*/true);
@@ -412,6 +397,37 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
             m_firewallManager->disableBlockPageForMAC(mac);
         }
     });
+
+    // MacVendorManager — wire async API results back to live device list
+    // When Tier-3 (online API) resolves a vendor, update any device whose MAC OUI matches.
+    connect(&MacVendorManager::instance(), &MacVendorManager::vendorResolved,
+            this, [this](const QString &oui6, const QString &vendor) {
+        QMutexLocker lk(&m_resultsMutex);
+        bool changed = false;
+        for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
+            Device &d = it.value();
+            // Normalize the device MAC OUI to 6 uppercase hex (no separators)
+            QString mac = d.mac();
+            mac.remove(':'); mac.remove('-');
+            if (mac.left(6).toUpper() == oui6) {
+                // Never overwrite a vendor that is already meaningful and non-generic.
+                // Exception: "This Device (Host)" IS overwritten — the host is
+                // already clearly identified by its status badge.
+                const QString &cur = d.vendor();
+                bool shouldUpdate = cur.isEmpty()
+                                 || cur == "Unknown Vendor"
+                                 || cur == "This Device (Host)";
+                if (shouldUpdate) {
+                    d.setVendor(vendor);
+                    DatabaseManager::instance().saveDevice(d);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            emit devicesUpdated(m_allDevices.values());
+        }
+    }, Qt::QueuedConnection);
 
     // Router Detector
     m_routerDetector = new RouterDetector();
@@ -632,6 +648,24 @@ void NetworkManager::onDeviceSeen(const QHostAddress &ip, const QString &mac) {
 void NetworkManager::onHostnameDiscovered(const QHostAddress &ip, const QString &hostname) {
     if (hostname.isEmpty()) return;
 
+    // Try to get the MAC address for vendor checking
+    QString mac;
+    {
+        QMutexLocker lk(&m_resultsMutex);
+        const QString ipStr = ip.toString();
+        if (m_allDevices.contains(ipStr)) {
+            mac = m_allDevices[ipStr].mac();
+        }
+    }
+
+    // Reject manufacturer-style names (e.g. "SHENZHEN BAOAN GAOKE ELECTRONICS")
+    // that some devices broadcast as their mDNS/NBNS host identity.
+    if (isManufacturerStyleHostname(hostname, mac)) {
+        qDebug() << "[NetworkManager] Ignoring manufacturer-style mDNS/NBNS hostname:"
+                 << hostname << "for" << ip.toString();
+        return;
+    }
+
     // Only update devices that are still showing 'Unknown' hostname
     // (DHCP and active-scan data takes precedence)
     QMutexLocker lk(&m_resultsMutex);
@@ -669,6 +703,15 @@ void NetworkManager::startCapture(const QString &iface) {
 // ============================================================
 void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const QString &iface) {
     Q_UNUSED(iface)
+    
+    // Protection against IP Forwarding / NAT side-effects:
+    // When the host forwards a packet for another device (e.g. .106 -> Internet),
+    // the outgoing packet has srcIp=.106 but srcMac=HostMAC. 
+    // We must ignore these so we don't assign the Host's MAC to remote devices!
+    if (mac == m_myMac && ip != QHostAddress(m_myIpAddr).toString()) {
+        return; 
+    }
+
     QMutexLocker lk(&m_resultsMutex);
     
     Device existingDev;
@@ -684,10 +727,14 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
             }
         }
         if (!oldIp.isEmpty()) {
-            existingDev = m_allDevices[oldIp];
-            DatabaseManager::instance().removeDevice(oldIp);
-            m_allDevices.remove(oldIp);
-            moved = true;
+            QString hostIp = QHostAddress(m_myIpAddr).toString();
+            // Do not delete the host or gateway if they share a MAC (e.g. VMs, aliases, Proxy ARP)
+            if (oldIp != hostIp && oldIp != m_gatewayIp && ip != hostIp && ip != m_gatewayIp) {
+                existingDev = m_allDevices[oldIp];
+                DatabaseManager::instance().removeDevice(oldIp);
+                m_allDevices.remove(oldIp);
+                moved = true;
+            }
         }
     }
 
@@ -721,9 +768,10 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
             bool blocked = DatabaseManager::instance().isBlacklisted(mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(mac));
             d.setStatus(blocked ? "Blocked" : "Online");
             m_allDevices.insert(ip, d);
-            
             DatabaseManager::instance().saveDevice(d);
-            logEvent(NetworkEvent::Discovery, QString("New device discovered: %1").arg(ip), ip);
+            if (!moved) {
+                logEvent(NetworkEvent::Discovery, QString("New device discovered: %1").arg(ip), ip);
+            }
         }
     }
     
@@ -778,10 +826,14 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
             }
         }
         if (!oldIp.isEmpty()) {
-            existingDev = m_allDevices[oldIp];
-            DatabaseManager::instance().removeDevice(oldIp);
-            m_allDevices.remove(oldIp);
-            moved = true;
+            QString hostIp = QHostAddress(m_myIpAddr).toString();
+            // Do not delete the host or gateway if they share a MAC (e.g. VMs, aliases, Proxy ARP)
+            if (oldIp != hostIp && oldIp != m_gatewayIp && dev.ip() != hostIp && dev.ip() != m_gatewayIp) {
+                existingDev = m_allDevices[oldIp];
+                DatabaseManager::instance().removeDevice(oldIp);
+                m_allDevices.remove(oldIp);
+                moved = true;
+            }
         }
     }
 
@@ -800,11 +852,15 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
                 d.setHostname(dev.hostname());
         }
         
-        // Ensure Host strictly retains its special visual tag.
+        // Ensure Host retains its special visual tag.
         if (isHost) {
             d.setStatus("Online (Self)");
             if (d.hostname() == "Unknown" || d.hostname() == "localhost") d.setHostname(QHostInfo::localHostName());
-            d.setVendor("This Device (Host)");
+            // Only label as "This Device (Host)" if the vendor hasn't been resolved
+            // to a real manufacturer yet. Once the API resolves it (e.g. "Intel"),
+            // keep that — the host is already identified by its status badge.
+            if (d.vendor().isEmpty() || d.vendor() == "Unknown Vendor")
+                d.setVendor("This Device (Host)");
         } else if (!properStatus.isEmpty()) {
             d.setStatus(properStatus);
         }
@@ -1247,11 +1303,27 @@ void NetworkManager::runScan() {
     m_trafficMonitor->setHostIdentity(m_myMac, m_myIpAddr);
 
 
-    // Self
+    // Self — register the host machine.
+    // Use MacVendorManager for the real manufacturer (falls back to "Unknown Vendor"
+    // on first run; will be resolved async and updated by vendorResolved signal).
     Device self;
     self.setIp(myAddress.toString());
     self.setMac(m_myMac);
-    self.setVendor("This Device (Host)");
+    // If we already have a resolved vendor in DB, keep it. Otherwise placeholder.
+    {
+        QMutexLocker lk(&m_resultsMutex);
+        auto existingIt = m_allDevices.find(myAddress.toString());
+        bool hasRealVendor = existingIt != m_allDevices.end()
+                          && !existingIt->vendor().isEmpty()
+                          && existingIt->vendor() != "Unknown Vendor"
+                          && existingIt->vendor() != "This Device (Host)";
+        if (!hasRealVendor) {
+            QString resolved = MacVendorManager::instance().lookupVendor(m_myMac);
+            self.setVendor(resolved == "Unknown Vendor" ? "This Device (Host)" : resolved);
+        } else {
+            self.setVendor(existingIt->vendor());
+        }
+    }
     self.setHostname(QHostInfo::localHostName());
     self.setStatus("Online (Self)");
     addDiscoveredDevice(self);
@@ -1336,6 +1408,21 @@ void NetworkManager::runScan() {
 // ============================================================
 // Utility helpers
 // ============================================================
+void NetworkManager::clearDevices() {
+    QMutexLocker lk(&m_resultsMutex);
+    m_allDevices.clear();
+    // Add back the host so it doesn't disappear completely
+    Device self;
+    self.setIp(QHostAddress(m_myIpAddr).toString());
+    self.setMac(m_myMac);
+    self.setHostname(QHostInfo::localHostName());
+    self.setStatus("Online (Self)");
+    self.setVendor("This Device (Host)");
+    self.setLastSeen(QDateTime::currentDateTime());
+    m_allDevices.insert(self.ip(), self);
+    emit devicesUpdated(m_allDevices.values());
+}
+
 QString NetworkManager::getMyMac(const QString &iface) {
     struct ifreq ifr{};
     strncpy(ifr.ifr_name, iface.toLocal8Bit().constData(), IFNAMSIZ - 1);

@@ -21,6 +21,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QWaitCondition>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
@@ -614,10 +615,16 @@ public:
         // Wait until first success OR all layers finish, with hard timeout
         QMutexLocker lk(&sr.mutex);
         int waitMs = m_tms + 200; // a bit beyond per-layer timeout
-        auto deadline = [&]() {
-            return sr.resolved || sr.done >= sr.total;
-        };
-        sr.cond.wait(&sr.mutex, waitMs);
+        
+        // Qt's QElapsedTimer is perfect for loop-based timeouts
+        QElapsedTimer timer;
+        timer.start();
+        while (!sr.resolved && sr.done < sr.total) {
+            int remaining = waitMs - timer.elapsed();
+            if (remaining <= 0) break; // hard timeout
+            sr.cond.wait(&sr.mutex, remaining);
+        }
+        
         // Drain any still-running sub-threads
         lk.unlock();
         sub.waitForDone(m_tms + 500);

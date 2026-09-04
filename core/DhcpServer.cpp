@@ -395,11 +395,12 @@ void DhcpServer::processRawFrame(uint8_t *buf, ssize_t len) {
     // The client's real hardware address is in the Ethernet *source* field.
     // RFC 2131 says we should use chaddr, but some buggy clients zero padding bytes
     // differently; using L2 src for sending back is most reliable.
-    processDhcpPacket(req, dhcpLen, eth->src);
+    processDhcpPacket(req, dhcpLen, eth->src, eth->dst);
 }
 
 void DhcpServer::processDhcpPacket(DhcpHeader *req, ssize_t dhcpLen,
-                                    const uint8_t *clientMacL2) {
+                                    const uint8_t *clientMacL2,
+                                    const uint8_t *ethDst) {
     uint8_t  *options    = reinterpret_cast<uint8_t*>(req) + sizeof(DhcpHeader);
     ssize_t   optionsLen = dhcpLen - sizeof(DhcpHeader);
 
@@ -431,6 +432,27 @@ void DhcpServer::processDhcpPacket(DhcpHeader *req, ssize_t dhcpLen,
     }
 
     qDebug() << "[DHCP] Received type" << msgType << "from" << clientMac;
+
+    // --- Unicast Interception for Reconnecting Devices ---
+    // If a device reconnects and tries to renew a lease from the OLD router, it will
+    // send a Unicast DHCP REQUEST to the old router's MAC.
+    // If we just ACK it, the client drops our ACK (wrong source IP/MAC). 
+    // If we want to handle it, we MUST NAK it to force it to DISCOVER our pool!
+    if (ethDst) {
+        bool isBroadcast = memcmp(ethDst, "\xFF\xFF\xFF\xFF\xFF\xFF", 6) == 0;
+        if (!isBroadcast && serverMacValid && memcmp(ethDst, m_serverMac, 6) != 0) {
+            if (!m_config.authoritative) {
+                // Not authoritative, ignore unicasts for other servers
+                qDebug() << "[DHCP] Ignoring unicast packet not addressed to our MAC";
+                return;
+            } else if (msgType == 3) { // REQUEST
+                qDebug() << "[DHCP] Authoritative Intercept: client" << clientMac 
+                         << "is renewing with another server. NAKing to force DISCOVER.";
+                sendNak(req, clientMacL2);
+                return;
+            }
+        }
+    }
 
     // --- RFC 2131 Compliant Client Blocking ---
     // Check if this MAC is blocked and reject immediately with NAK.

@@ -71,6 +71,8 @@ public slots:
     void startDHCPServer(const core::DHCPServerConfig &config);
     void stopDHCPServer();
     void toggleDHCP(bool enable);
+    void clearDevices();
+
     void updateDeviceAlias(const QString &mac, const QString &alias);
     void addWhitelistedMAC(const QString &mac);
     void removeWhitelistedMAC(const QString &mac);

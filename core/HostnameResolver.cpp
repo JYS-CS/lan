@@ -291,10 +291,17 @@ QString HostnameResolver::tryNBNS(const QString &ip, int timeoutMs)
     }
 
     unsigned char buf[512];
-    socklen_t sl = sizeof(dest);
+    struct sockaddr_in src{};
+    socklen_t sl = sizeof(src);
     int n = ::recvfrom(s, buf, sizeof(buf), 0,
-                       reinterpret_cast<sockaddr *>(&dest), &sl);
+                       reinterpret_cast<sockaddr *>(&src), &sl);
     ::close(s);
+
+    // Unicast query to a specific IP — collision risk is far lower than the
+    // multicast layers, but verify anyway for consistency and defense in depth.
+    char srcBuf[INET_ADDRSTRLEN] = {};
+    inet_ntop(AF_INET, &src.sin_addr, srcBuf, sizeof(srcBuf));
+    if (ip != QString::fromLatin1(srcBuf)) return {};
 
     // NBNS NODE STATUS RESPONSE byte layout (RFC 1002 §4.2.18):
     //   [0-11]  : DNS-like header (12 bytes)
@@ -356,10 +363,15 @@ QString HostnameResolver::tryLLMNR(const QString &ip, int timeoutMs)
     }
 
     unsigned char buf[512];
-    socklen_t sl = sizeof(dest);
+    struct sockaddr_in src{};
+    socklen_t sl = sizeof(src);
     int n = ::recvfrom(s, buf, sizeof(buf), 0,
-                       reinterpret_cast<sockaddr *>(&dest), &sl);
+                       reinterpret_cast<sockaddr *>(&src), &sl);
     ::close(s);
+
+    char srcBuf[INET_ADDRSTRLEN] = {};
+    inet_ntop(AF_INET, &src.sin_addr, srcBuf, sizeof(srcBuf));
+    if (ip != QString::fromLatin1(srcBuf)) return {};
 
     return stripLocal(parsePtrFromResponse(buf, n, txId));
 }
@@ -629,9 +641,22 @@ public:
         lk.unlock();
         sub.waitForDone(m_tms + 500);
 
-        if (!sr.hostname.isEmpty()) {
+        // Re-acquire the lock before reading hostname: if waitForDone's bounded
+        // wait timed out while a layer was still mid-write, reading without the
+        // lock here would be an unsynchronized data race on the QString. The
+        // actual object lifetime is safe either way (QThreadPool's destructor
+        // blocks until every sub-runnable truly finishes, and sr is declared
+        // before sub so it outlives them), but the read itself must still be
+        // synchronized against a concurrent writer.
+        QString hostname;
+        {
+            QMutexLocker relock(&sr.mutex);
+            hostname = sr.hostname;
+        }
+
+        if (!hostname.isEmpty()) {
             QMutexLocker rl(&m_mutex);
-            m_results.insert(m_ip, sr.hostname);
+            m_results.insert(m_ip, hostname);
         }
     }
 

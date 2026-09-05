@@ -99,6 +99,9 @@ void DeviceTable::onCustomContextMenu(const QPoint &pos) {
     menu.addSeparator();
     QAction *whitelist = menu.addAction("Whitelist — Allow device");
     whitelist->setProperty("safe", true);
+    menu.addSeparator();
+    QAction *block = menu.addAction("Block Device");
+    block->setProperty("danger", true);
 
     QAction *selected = menu.exec(viewport()->mapToGlobal(pos));
     if (!selected) return;
@@ -109,6 +112,7 @@ void DeviceTable::onCustomContextMenu(const QPoint &pos) {
     else if (selected == rename) onRenameRequested(dev.mac(), dev.alias().isEmpty() ? dev.hostname() : dev.alias());
     else if (selected == audit) emit portScanRequested(dev.ip());
     else if (selected == whitelist) emit whitelistRequested(dev.mac());
+    else if (selected == block) emit blockRequested(dev.mac());
 }
 
 void DeviceTable::onRenameRequested(const QString &mac, const QString &oldAlias) {

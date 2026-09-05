@@ -502,6 +502,11 @@ void DHCPPage::dhcpStatusChanged(bool active) {
     m_serverActive = active;
     bool intercept = m_interceptMode;
 
+    // Blocking devices only makes sense while this machine is both the DHCP
+    // server AND actually routing traffic (Intercept/Gateway). Report the
+    // combined state so NetworkManager can gate the block action correctly.
+    if (m_networkManager) m_networkManager->setGatewayModeActive(active && intercept);
+
     // Hide the config section while the server is running;
     // only show it when the server is stopped so the user can edit settings.
     m_configWidget->setVisible(!active);

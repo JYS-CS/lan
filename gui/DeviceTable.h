@@ -24,6 +24,7 @@ signals:
     void portScanRequested(const QString &ip);
     void staticRequested(QString mac, QString ip);
     void deviceSelected(QString ip);
+    void blockRequested(const QString &mac);
 
 private slots:
     void onCustomContextMenu(const QPoint &pos);

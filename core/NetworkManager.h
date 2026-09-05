@@ -11,6 +11,7 @@
 #include <QDateTime>
 #include <QThreadPool>
 #include <QTimer>
+#include <QVariant>
 #include <atomic>
 
 #include "Device.h"
@@ -89,6 +90,7 @@ public:
     QHostAddress getInterfaceAddress(const QString &iface);
     QHostAddress getInterfaceNetmask(const QString &iface);
     RouterInfo  getRouterInfo() const;
+    bool isGatewayModeActive() const { return m_gatewayModeActive; }
 
 signals:
     void devicesUpdated(const QList<core::Device> &devices);
@@ -112,9 +114,24 @@ signals:
     void trafficUpdated(const QMap<QString, core::TrafficStats> &stats);
     void globalTrafficStatsUpdated(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
 
+    // Gateway / blocking signals
+    // Blocking is only meaningful once this machine both runs the DHCP
+    // server AND has Intercept enabled (i.e. is actually in the traffic
+    // path). gatewayModeChanged tracks that combined state; DHCPPage is
+    // the source of truth and calls setGatewayModeActive() on start/stop.
+    void gatewayModeChanged(bool active);
+    void deviceBlocked(const QString &mac);
+    void deviceUnblocked(const QString &mac);
+    void blockActionFailed(const QString &reason);
+    void blockedDevicesReady(const QVariantList &entries);
+
 public slots:
     void onRefreshRequested();
     void triggerRouterDetection(bool force = false);
+    void setGatewayModeActive(bool active);
+    void blockDevice(const QString &mac, const QString &reason = QString("Blocked by admin"));
+    void unblockDevice(const QString &mac);
+    void requestBlockedDevices();
 
 private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
@@ -157,6 +174,7 @@ private:
     CaptivePortalManager *m_captivePortal = nullptr;
     RouterDetector *m_routerDetector  = nullptr;
     QThread        *m_routerThread    = nullptr;
+    bool            m_gatewayModeActive = false;
 
     QString m_interfaceName;
     QString m_gatewayIp;

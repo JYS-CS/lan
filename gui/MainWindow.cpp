@@ -16,6 +16,7 @@
 #include "PortScanDialog.h"
 #include "StartupModePage.h"
 #include "RouterPage.h"
+#include "BlockedDevicesPage.h"
 #include "Theme.h"
 #include <QButtonGroup>
 #include <QFrame>
@@ -61,6 +62,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Context Menu / Expansion Logic
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::aliasRequested, m_networkManager, &core::NetworkManager::updateDeviceAlias);
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::whitelistRequested, m_networkManager, &core::NetworkManager::addWhitelistedMAC);
+    connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::blockRequested, m_networkManager, [this](const QString &mac) {
+        m_networkManager->blockDevice(mac);
+    });
+    connect(m_networkManager, &core::NetworkManager::blockActionFailed, this, [this](const QString &reason) {
+        QMessageBox::warning(this, "Cannot Block Device", reason);
+    });
+    connect(m_networkManager, &core::NetworkManager::deviceBlocked, this, [this](const QString &mac) {
+        statusBar()->showMessage("Blocked device " + mac, 4000);
+    });
     
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::portScanRequested, this, [this](const QString &ip) {
         auto *dialog = new gui::PortScanDialog(ip, this);
@@ -141,6 +151,10 @@ void MainWindow::setupUI() {
     // Page 6: Settings Page
     m_settingsPage = new SettingsPage(this);
     m_centralStacked->addWidget(m_settingsPage);
+
+    // Page 7: Blocked Devices Page
+    m_blockedDevicesPage = new BlockedDevicesPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_blockedDevicesPage);
 
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
@@ -263,6 +277,10 @@ void MainWindow::setupToolBar() {
 
     // 4. ROUTER button
     hLayout->addWidget(createNavBtn("Router", ":/resources/router.svg", 5));
+    hLayout->addWidget(createDivider());
+
+    // 4b. BLOCKED DEVICES button
+    hLayout->addWidget(createNavBtn("Blocked", ":/resources/ban.svg", 7));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

@@ -545,6 +545,73 @@ bool NetworkManager::isDeviceBlocked(const QString &mac) const {
     return m_firewallManager && m_firewallManager->isMACBlocked(mac);
 }
 
+void NetworkManager::setGatewayModeActive(bool active) {
+    if (m_gatewayModeActive == active) return;
+    m_gatewayModeActive = active;
+    emit gatewayModeChanged(active);
+}
+
+void NetworkManager::blockDevice(const QString &mac, const QString &reason) {
+    if (mac.isEmpty()) return;
+
+    // Blocking only makes sense while this machine is actually in the
+    // traffic path — DHCP server running with Intercept/Gateway enabled.
+    // Without that, blocking at the firewall level here has no effect on
+    // devices getting their addressing (and internet access) from the
+    // real router instead.
+    if (!m_gatewayModeActive) {
+        emit blockActionFailed(
+            "Blocking requires the DHCP Server to be running in Gateway "
+            "(Intercept) mode, so this machine is actually in the traffic path.");
+        return;
+    }
+
+    QString lMac = mac.toLower();
+    DatabaseManager::instance().addToBlacklist(lMac, reason);
+    if (m_firewallManager) m_firewallManager->blockMAC(lMac);
+    if (m_dhcpManager)     m_dhcpManager->blockMAC(lMac);
+
+    logEvent(core::NetworkEvent::Security, QString("Device blocked: %1 (%2)").arg(lMac, reason));
+    emit deviceBlocked(lMac);
+}
+
+void NetworkManager::unblockDevice(const QString &mac) {
+    if (mac.isEmpty()) return;
+    QString lMac = mac.toLower();
+
+    DatabaseManager::instance().removeFromBlacklist(lMac);
+    if (m_firewallManager) m_firewallManager->unblockMAC(lMac);
+    if (m_dhcpManager)     m_dhcpManager->unblockMAC(lMac);
+
+    logEvent(core::NetworkEvent::Info, QString("Device unblocked: %1").arg(lMac));
+    emit deviceUnblocked(lMac);
+}
+
+void NetworkManager::requestBlockedDevices() {
+    QVariantList out;
+    const auto entries = DatabaseManager::instance().getBlacklist();
+    for (const auto &e : entries) {
+        QVariantMap m;
+        m["mac"]       = e.mac;
+        m["reason"]    = e.reason;
+        m["blockedAt"] = e.blockedAt;
+
+        // Enrich with the last-known IP/hostname from the live device cache, if any
+        QString ip, hostname;
+        for (auto it = m_allDevices.constBegin(); it != m_allDevices.constEnd(); ++it) {
+            if (it.value().mac().toLower() == e.mac) {
+                ip = it.value().ip();
+                hostname = it.value().alias().isEmpty() ? it.value().hostname() : it.value().alias();
+                break;
+            }
+        }
+        m["ip"] = ip;
+        m["hostname"] = hostname;
+        out.append(m);
+    }
+    emit blockedDevicesReady(out);
+}
+
 
 
 // ============================================================

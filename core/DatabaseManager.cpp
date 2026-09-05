@@ -193,6 +193,21 @@ bool DatabaseManager::isBlacklisted(const QString &mac) {
     return false;
 }
 
+QList<BlacklistEntry> DatabaseManager::getBlacklist() {
+    QList<BlacklistEntry> list;
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT mac, reason, blocked_at FROM blacklist ORDER BY blocked_at DESC")) {
+        while (q.next()) {
+            BlacklistEntry e;
+            e.mac       = q.value(0).toString();
+            e.reason    = q.value(1).toString();
+            e.blockedAt = q.value(2).toString();
+            list.append(e);
+        }
+    }
+    return list;
+}
+
 void DatabaseManager::addToWhitelist(const QString &mac) {
     QSqlQuery q(m_db);
     q.prepare("INSERT OR REPLACE INTO whitelist (mac, added_at) VALUES (:mac, :at)");

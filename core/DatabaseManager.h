@@ -11,6 +11,13 @@
 
 namespace core {
 
+// A single blocked-device record, as stored in the blacklist table.
+struct BlacklistEntry {
+    QString mac;
+    QString reason;
+    QString blockedAt; // ISO 8601
+};
+
 class DatabaseManager : public QObject {
     Q_OBJECT
 
@@ -36,6 +43,7 @@ public:
     void addToBlacklist(const QString &mac, const QString &reason);
     void removeFromBlacklist(const QString &mac);
     bool isBlacklisted(const QString &mac);
+    QList<BlacklistEntry> getBlacklist();
     
     void addToWhitelist(const QString &mac);
     void removeFromWhitelist(const QString &mac);

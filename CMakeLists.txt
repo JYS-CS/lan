@@ -78,6 +78,8 @@ add_executable(LANMonitor
     gui/TopologyWidget.h
     gui/RouterPage.h
     gui/RouterPage.cpp
+    gui/BlockedDevicesPage.h
+    gui/BlockedDevicesPage.cpp
     utils/Logger.h
 )
 

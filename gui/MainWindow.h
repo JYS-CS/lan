@@ -16,6 +16,7 @@
 #include "TrafficPage.h"
 #include "RouterPage.h"
 #include "SettingsPage.h"
+#include "BlockedDevicesPage.h"
 
 namespace gui { 
     class IPCalculatorPage; 
@@ -59,6 +60,7 @@ private:
     TrafficPage *m_trafficPage = nullptr;
     RouterPage  *m_routerPage  = nullptr;
     SettingsPage *m_settingsPage = nullptr;
+    BlockedDevicesPage *m_blockedDevicesPage = nullptr;
 
     // Custom UI Components
     QWidget        *m_customToolBar  = nullptr;

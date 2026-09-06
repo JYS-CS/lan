@@ -13,6 +13,7 @@
 #include <QToolButton>
 #include "../core/NetworkManager.h"
 #include "../core/RouterDetector.h"
+#include "../core/VulnerabilityScanner.h"
 
 namespace gui {
 
@@ -55,6 +56,9 @@ public slots:
 
 private slots:
     void onRescanClicked();
+    void onVulnScanClicked();
+    void onVulnScanResult(const core::VulnScanResult &result);
+    void onVulnScanProgress(const QString &ip, int percent, const QString &stage);
 
 private:
     void setupUi();
@@ -62,8 +66,10 @@ private:
     void setScanning(bool scanning);
     void populateCapabilities(const core::RouterInfo &info);
     QWidget* createStatCard(const QString &label, const QString &color, QLabel **countPtr);
+    QWidget* createFindingRow(const core::VulnFinding &finding);
 
     core::NetworkManager *m_nm;
+    QString m_currentGatewayIp;
 
     // Hero
     QLabel      *m_gwIpLabel;
@@ -109,6 +115,14 @@ private:
     QLabel  *m_credsRiskLabel;
     QLabel  *m_fwRiskLabel;
     QLabel  *m_notesLabel;
+
+    // Vulnerability scan
+    QFrame      *m_vulnCard;
+    QPushButton *m_vulnScanBtn;
+    QLabel      *m_vulnStatusLabel;
+    QWidget     *m_vulnFindingsContainer;
+    QVBoxLayout *m_vulnFindingsLayout;
+    bool         m_vulnScanRunning = false;
 };
 
 } // namespace gui

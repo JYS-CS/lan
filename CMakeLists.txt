@@ -64,6 +64,8 @@ add_executable(LANMonitor
     core/MacVendorManager.h
     core/RouterDetector.h
     core/RouterDetector.cpp
+    core/VulnerabilityScanner.h
+    core/VulnerabilityScanner.cpp
     resources.qrc
     core/Device.h
     gui/MainWindow.cpp
@@ -80,6 +82,8 @@ add_executable(LANMonitor
     gui/RouterPage.cpp
     gui/BlockedDevicesPage.h
     gui/BlockedDevicesPage.cpp
+    gui/VulnerabilityPage.h
+    gui/VulnerabilityPage.cpp
     utils/Logger.h
 )
 

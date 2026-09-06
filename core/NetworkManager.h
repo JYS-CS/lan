@@ -22,6 +22,7 @@
 #include "CaptivePortalManager.h"
 #include "Types.h"
 #include "RouterDetector.h"
+#include "VulnerabilityScanner.h"
 
 // Forward-declare pcap types to avoid pulling pcap.h into every TU
 struct pcap;
@@ -125,6 +126,11 @@ signals:
     void blockActionFailed(const QString &reason);
     void blockedDevicesReady(const QVariantList &entries);
 
+    // Vulnerability scanning
+    void vulnScanProgress(const QString &ip, int percent, const QString &stage);
+    void vulnScanResultReady(const core::VulnScanResult &result);
+    void vulnScanAllFinished();
+
 public slots:
     void onRefreshRequested();
     void triggerRouterDetection(bool force = false);
@@ -132,6 +138,8 @@ public slots:
     void blockDevice(const QString &mac, const QString &reason = QString("Blocked by admin"));
     void unblockDevice(const QString &mac);
     void requestBlockedDevices();
+    void triggerVulnScan(const QString &ip, const QString &mac = QString(), const QString &hostname = QString());
+    void triggerVulnScanAll();
 
 private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
@@ -175,6 +183,9 @@ private:
     RouterDetector *m_routerDetector  = nullptr;
     QThread        *m_routerThread    = nullptr;
     bool            m_gatewayModeActive = false;
+
+    VulnerabilityScanner *m_vulnScanner = nullptr;
+    QThread              *m_vulnThread  = nullptr;
 
     QString m_interfaceName;
     QString m_gatewayIp;

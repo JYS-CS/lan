@@ -17,6 +17,7 @@
 #include "StartupModePage.h"
 #include "RouterPage.h"
 #include "BlockedDevicesPage.h"
+#include "VulnerabilityPage.h"
 #include "Theme.h"
 #include <QButtonGroup>
 #include <QFrame>
@@ -159,6 +160,10 @@ void MainWindow::setupUI() {
     m_blockedDevicesPage = new BlockedDevicesPage(m_networkManager, this);
     m_centralStacked->addWidget(m_blockedDevicesPage);
 
+    // Page 8: Vulnerability Scanner Page
+    m_vulnerabilityPage = new VulnerabilityPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_vulnerabilityPage);
+
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
     setCentralWidget(m_centralStacked);
@@ -284,6 +289,10 @@ void MainWindow::setupToolBar() {
 
     // 4b. BLOCKED DEVICES button
     hLayout->addWidget(createNavBtn("Blocked", ":/resources/ban.svg", 7));
+    hLayout->addWidget(createDivider());
+
+    // 4c. VULNERABILITY SCANNER button
+    hLayout->addWidget(createNavBtn("Vulnerabilities", ":/resources/warning.svg", 8));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

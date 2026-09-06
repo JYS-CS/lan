@@ -440,6 +440,20 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
             this, &NetworkManager::routerDetectionStage, Qt::QueuedConnection);
     m_routerThread->start();
 
+    // Vulnerability Scanner — same pattern as RouterDetector: dedicated
+    // thread since every check is a blocking socket call with a timeout.
+    m_vulnScanner = new VulnerabilityScanner();
+    m_vulnThread  = new QThread(this);
+    m_vulnScanner->moveToThread(m_vulnThread);
+    connect(m_vulnThread, &QThread::finished, m_vulnScanner, &QObject::deleteLater);
+    connect(m_vulnScanner, &VulnerabilityScanner::resultReady,
+            this, &NetworkManager::vulnScanResultReady, Qt::QueuedConnection);
+    connect(m_vulnScanner, &VulnerabilityScanner::progress,
+            this, &NetworkManager::vulnScanProgress, Qt::QueuedConnection);
+    connect(m_vulnScanner, &VulnerabilityScanner::allFinished,
+            this, &NetworkManager::vulnScanAllFinished, Qt::QueuedConnection);
+    m_vulnThread->start();
+
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
     // This prevents any scan/firewall activity while the wizard is open.
@@ -504,6 +518,10 @@ NetworkManager::~NetworkManager() {
     if (m_routerThread) {
         m_routerThread->quit();
         m_routerThread->wait(3000);
+    }
+    if (m_vulnThread) {
+        m_vulnThread->quit();
+        m_vulnThread->wait(3000);
     }
 }
 
@@ -617,6 +635,24 @@ void NetworkManager::requestBlockedDevices() {
         out.append(m);
     }
     emit blockedDevicesReady(out);
+}
+
+void NetworkManager::triggerVulnScan(const QString &ip, const QString &mac, const QString &hostname) {
+    if (ip.isEmpty() || !m_vulnScanner) return;
+    QMetaObject::invokeMethod(m_vulnScanner, "scan", Qt::QueuedConnection,
+                               Q_ARG(QString, ip), Q_ARG(QString, mac), Q_ARG(QString, hostname));
+}
+
+void NetworkManager::triggerVulnScanAll() {
+    if (!m_vulnScanner) return;
+    QList<QStringList> devices;
+    for (auto it = m_allDevices.constBegin(); it != m_allDevices.constEnd(); ++it) {
+        const Device &d = it.value();
+        QString hostname = d.alias().isEmpty() ? d.hostname() : d.alias();
+        devices.append({d.ip(), d.mac(), hostname});
+    }
+    QMetaObject::invokeMethod(m_vulnScanner, "scanMany", Qt::QueuedConnection,
+                               Q_ARG(QList<QStringList>, devices));
 }
 
 

@@ -116,6 +116,10 @@ RouterPage::RouterPage(core::NetworkManager *nm, QWidget *parent)
                 this, &RouterPage::updateInfo, Qt::QueuedConnection);
         connect(m_nm, &core::NetworkManager::routerDetectionStage,
                 this, &RouterPage::setDetectionStage, Qt::QueuedConnection);
+        connect(m_nm, &core::NetworkManager::vulnScanResultReady,
+                this, &RouterPage::onVulnScanResult, Qt::QueuedConnection);
+        connect(m_nm, &core::NetworkManager::vulnScanProgress,
+                this, &RouterPage::onVulnScanProgress, Qt::QueuedConnection);
 
         core::RouterInfo cached = m_nm->getRouterInfo();
         if (cached.isValid) {
@@ -308,6 +312,42 @@ void RouterPage::setupUi() {
     riskLayout->addWidget(m_notesLabel);
     cv->addWidget(m_secRiskBar);
 
+    // ──── Vulnerability Scan ────────────────────────────────────────────────
+    m_vulnCard = new QFrame(content);
+    m_vulnCard->setObjectName("SectionCard");
+    auto *vulnLayout = new QVBoxLayout(m_vulnCard);
+    vulnLayout->setContentsMargins(18, 16, 18, 16);
+    vulnLayout->setSpacing(10);
+
+    auto *vulnHeaderRow = new QHBoxLayout();
+    auto *vulnTitle = new QLabel("VULNERABILITY SCAN", m_vulnCard);
+    vulnTitle->setStyleSheet("font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #4d5666; letter-spacing: 0.12em;");
+    m_vulnScanBtn = new QPushButton("Run Scan", m_vulnCard);
+    m_vulnScanBtn->setObjectName("VulnScanBtn");
+    m_vulnScanBtn->setCursor(Qt::PointingHandCursor);
+    m_vulnScanBtn->setFixedHeight(28);
+    vulnHeaderRow->addWidget(vulnTitle);
+    vulnHeaderRow->addStretch();
+    vulnHeaderRow->addWidget(m_vulnScanBtn);
+    vulnLayout->addLayout(vulnHeaderRow);
+
+    m_vulnStatusLabel = new QLabel(
+        "Passive fingerprint scan — checks for exposed insecure services, default "
+        "SNMP community strings, and outdated banners. Never attempts logins.", m_vulnCard);
+    m_vulnStatusLabel->setWordWrap(true);
+    m_vulnStatusLabel->setStyleSheet("font-family: 'Inter'; font-size: 11px; color: #7c8798;");
+    vulnLayout->addWidget(m_vulnStatusLabel);
+
+    m_vulnFindingsContainer = new QWidget(m_vulnCard);
+    m_vulnFindingsLayout = new QVBoxLayout(m_vulnFindingsContainer);
+    m_vulnFindingsLayout->setContentsMargins(0, 4, 0, 0);
+    m_vulnFindingsLayout->setSpacing(8);
+    vulnLayout->addWidget(m_vulnFindingsContainer);
+
+    cv->addWidget(m_vulnCard);
+
+    connect(m_vulnScanBtn, &QPushButton::clicked, this, &RouterPage::onVulnScanClicked);
+
     // ──── Raw Probe Data (Accordions) ─────────────────────────────────────────
     auto *rawTitle = new QLabel("RAW PROBE DATA", content);
     rawTitle->setStyleSheet("font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: #4d5666; letter-spacing: 0.12em; margin-top: 4px;");
@@ -359,6 +399,11 @@ void RouterPage::applyTheme() {
         "QFrame#SectionCard {"
         "  background: #0f141b; border: 1px solid #1c232c; border-radius: 10px; }"
 
+        "QPushButton#VulnScanBtn { background: rgba(94,234,212,0.10); border: 1px solid rgba(94,234,212,0.30);"
+        " color: #5eead4; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 0 14px; }"
+        "QPushButton#VulnScanBtn:hover { background: rgba(94,234,212,0.18); }"
+        "QPushButton#VulnScanBtn:disabled { background: rgba(255,255,255,0.03); border: 1px solid #1c232c; color: #4d5666; }"
+
         "QPushButton#PrimaryBtn {"
         "  background: #0f141b; color: #34e4a0; font-family: 'Inter'; font-weight: 600;"
         "  font-size: 12px; border-radius: 8px; padding: 6px 18px;"
@@ -379,6 +424,7 @@ void RouterPage::applyTheme() {
 // ─── Data update ──────────────────────────────────────────────────────────────
 void RouterPage::updateInfo(const core::RouterInfo &info) {
     setScanning(false);
+    m_currentGatewayIp = info.gatewayIp;
 
     m_gwIpLabel->setText(info.gatewayIp.isEmpty() ? "—" : info.gatewayIp);
     m_gwMacLabel->setText(info.gatewayMac.isEmpty() ? "—" : info.gatewayMac.toUpper());
@@ -489,6 +535,97 @@ void RouterPage::onRescanClicked() {
     QMetaObject::invokeMethod(m_nm, [this]() {
         m_nm->triggerRouterDetection(true);
     }, Qt::QueuedConnection);
+}
+
+QWidget* RouterPage::createFindingRow(const core::VulnFinding &finding) {
+    QFrame *row = new QFrame(m_vulnFindingsContainer);
+    QString accent;
+    switch (finding.severity) {
+        case core::VulnSeverity::High:   accent = "#ff5c5c"; break;
+        case core::VulnSeverity::Medium: accent = "#f5a623"; break;
+        case core::VulnSeverity::Low:    accent = "#5eead4"; break;
+        default:                        accent = "#4d5666"; break;
+    }
+    row->setStyleSheet(QString(
+        "QFrame { background: rgba(255,255,255,0.02); border-left: 3px solid %1;"
+        " border-radius: 4px; }").arg(accent));
+
+    auto *layout = new QVBoxLayout(row);
+    layout->setContentsMargins(12, 8, 12, 8);
+    layout->setSpacing(3);
+
+    auto *titleRow = new QHBoxLayout();
+    auto *sevLabel = new QLabel(core::vulnSeverityString(finding.severity).toUpper(), row);
+    sevLabel->setStyleSheet(QString(
+        "font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;"
+        " color: %1; letter-spacing: 0.08em;").arg(accent));
+    auto *titleLabel = new QLabel(finding.title, row);
+    titleLabel->setStyleSheet("font-family: 'Inter'; font-size: 12px; font-weight: 600; color: #dbe4ee;");
+    titleRow->addWidget(sevLabel);
+    titleRow->addWidget(titleLabel);
+    titleRow->addStretch();
+
+    auto *detailLabel = new QLabel(finding.detail, row);
+    detailLabel->setWordWrap(true);
+    detailLabel->setStyleSheet("font-family: 'Inter'; font-size: 11px; color: #7c8798;");
+
+    layout->addLayout(titleRow);
+    layout->addWidget(detailLabel);
+    return row;
+}
+
+void RouterPage::onVulnScanClicked() {
+    if (!m_nm || m_currentGatewayIp.isEmpty() || m_vulnScanRunning) return;
+
+    m_vulnScanRunning = true;
+    m_vulnScanBtn->setEnabled(false);
+    m_vulnScanBtn->setText("Scanning…");
+    m_vulnStatusLabel->setText("Starting scan…");
+    m_vulnStatusLabel->setStyleSheet("font-family: 'Inter'; font-size: 11px; color: #5eead4;");
+
+    QLayoutItem *item;
+    while ((item = m_vulnFindingsLayout->takeAt(0)) != nullptr) {
+        delete item->widget();
+        delete item;
+    }
+
+    QString ip = m_currentGatewayIp;
+    QString mac = m_gwMacLabel->text();
+    QMetaObject::invokeMethod(m_nm, [this, ip, mac]() {
+        m_nm->triggerVulnScan(ip, mac, "Gateway");
+    }, Qt::QueuedConnection);
+}
+
+void RouterPage::onVulnScanProgress(const QString &ip, int percent, const QString &stage) {
+    if (ip != m_currentGatewayIp) return;
+    m_vulnStatusLabel->setText(QString("%1 (%2%)").arg(stage).arg(percent));
+}
+
+void RouterPage::onVulnScanResult(const core::VulnScanResult &result) {
+    if (result.ip != m_currentGatewayIp) return;
+
+    m_vulnScanRunning = false;
+    m_vulnScanBtn->setEnabled(true);
+    m_vulnScanBtn->setText("Run Scan");
+
+    if (result.findings.isEmpty()) {
+        m_vulnStatusLabel->setText("Scan complete — no issues found across " +
+            QString::number(result.openPorts.size()) + " open port(s).");
+        m_vulnStatusLabel->setStyleSheet("font-family: 'Inter'; font-size: 11px; color: #34e4a0;");
+        return;
+    }
+
+    core::VulnSeverity worst = result.overallSeverity();
+    QString worstColor = worst == core::VulnSeverity::High ? "#ff5c5c"
+                        : worst == core::VulnSeverity::Medium ? "#f5a623"
+                        : "#5eead4";
+    m_vulnStatusLabel->setText(QString("Scan complete — %1 finding(s), highest severity: %2")
+        .arg(result.findings.size()).arg(core::vulnSeverityString(worst)));
+    m_vulnStatusLabel->setStyleSheet(QString("font-family: 'Inter'; font-size: 11px; color: %1;").arg(worstColor));
+
+    for (const auto &f : result.findings) {
+        m_vulnFindingsLayout->addWidget(createFindingRow(f));
+    }
 }
 
 } // namespace gui

@@ -17,6 +17,7 @@
 #include "RouterPage.h"
 #include "SettingsPage.h"
 #include "BlockedDevicesPage.h"
+#include "VulnerabilityPage.h"
 
 namespace gui { 
     class IPCalculatorPage; 
@@ -61,6 +62,7 @@ private:
     RouterPage  *m_routerPage  = nullptr;
     SettingsPage *m_settingsPage = nullptr;
     BlockedDevicesPage *m_blockedDevicesPage = nullptr;
+    VulnerabilityPage *m_vulnerabilityPage = nullptr;
 
     // Custom UI Components
     QWidget        *m_customToolBar  = nullptr;

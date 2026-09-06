@@ -76,6 +76,10 @@ add_executable(LANMonitor
     gui/DeviceTableDelegate.h
     gui/TopologyWidget.cpp
     gui/TopologyWidget.h
+    gui/BandwidthChartWidget.cpp
+    gui/BandwidthChartWidget.h
+    gui/TopTalkersWidget.cpp
+    gui/TopTalkersWidget.h
     gui/RouterPage.h
     gui/RouterPage.cpp
     gui/BlockedDevicesPage.h

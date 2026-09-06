@@ -6,13 +6,13 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMenu>
-#include <QMessageBox>
 #include <QTimer>
 #include <QDateTime>
 #include <QPropertyAnimation>
 #include "DeviceTable.h"
 #include "TopologyWidget.h"
+#include "BandwidthChartWidget.h"
+#include "TopTalkersWidget.h"
 #include "../core/NetworkManager.h"
 
 namespace gui {
@@ -29,50 +29,70 @@ public:
 public slots:
     void updateDevices(const QList<core::Device> &devices);
     void updateGatewayStatus(bool active);
+    void setGatewayModeActive(bool active);
+    void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
+    void onGlobalTrafficStats(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
 
 private slots:
     void onRefreshRequested();
     void onSelectionChanged(const QString &ip);
     void onSearchChanged(const QString &text);
-    void onExportRequested();
     void onSearchToggled();
     void applySettings();
+    void tickFooter();
 
 private:
     void setupUi();
     void applyTheme();
-    QWidget* createStatCard(const QString &label, const QString &color, QLabel **countPtr);
+    QWidget* createStatCard(const QString &label, const QString &color,
+                            QLabel **countPtr, const QString &objName = "StatCard");
 
     core::NetworkManager *m_networkManager;
-    DeviceTable *m_deviceTable;
-    TopologyWidget *m_topologyWidget;
 
-    // Animated search & controls
-    QPushButton  *m_searchBtn;
-    QPushButton  *m_refreshBtn;
-    QLineEdit    *m_searchEdit;
-    QPropertyAnimation *m_searchAnim;
-    bool m_searchOpen = false;
+    // ── Layout containers ──────────────────────────────────────────────────
+    QWidget *m_analyticsPanel = nullptr;  // hidden when gateway is off
+    QWidget *m_bwUpCard       = nullptr;
+    QWidget *m_bwDownCard     = nullptr;
+    QWidget *m_blockedCard    = nullptr;
 
-    QLabel *m_onlineCount;
-    QLabel *m_uploadTotal;
-    QLabel *m_downloadTotal;
-    QLabel *m_unknownCount;
+    // ── Widgets ────────────────────────────────────────────────────────────
+    DeviceTable          *m_deviceTable      = nullptr;
+    TopologyWidget       *m_topologyWidget   = nullptr;
+    BandwidthChartWidget *m_bandwidthChart   = nullptr;
+    TopTalkersWidget     *m_topTalkersWidget = nullptr;
 
-    QWidget *m_uploadCard = nullptr;
-    QWidget *m_downloadCard = nullptr;
+    // ── Gateway badge ──────────────────────────────────────────────────────
+    QLabel *m_gatewayBadge = nullptr;
 
-    QLabel *m_lastUpdatedLabel;
-    QLabel *m_totalHostCountLabel;
+    // ── KPI labels ─────────────────────────────────────────────────────────
+    QLabel *m_onlineCount   = nullptr;
+    QLabel *m_uploadTotal   = nullptr;
+    QLabel *m_downloadTotal = nullptr;
+    QLabel *m_unknownCount  = nullptr;
+    QLabel *m_blockedCount  = nullptr;
 
-    QTimer *m_footerTimer;
-    bool m_liveDotState = false;
-    QLabel *m_footerLiveDot;
+    // ── Search ─────────────────────────────────────────────────────────────
+    QPushButton        *m_searchBtn  = nullptr;
+    QPushButton        *m_refreshBtn = nullptr;
+    QLineEdit          *m_searchEdit = nullptr;
+    QPropertyAnimation *m_searchAnim = nullptr;
+    bool                m_searchOpen = false;
 
+    // ── Footer ─────────────────────────────────────────────────────────────
+    QLabel *m_footerLiveDot     = nullptr;
+    QLabel *m_lastUpdatedLabel  = nullptr;
+    QLabel *m_totalHostCountLabel = nullptr;
+    QLabel *m_ppsLabel          = nullptr;
+    QTimer *m_footerTimer       = nullptr;
+    bool    m_liveDotState      = false;
     QDateTime m_lastUpdate;
 
-    qreal parseBw(const QString &bwStr);
-    QString formatBw(qreal bytesPerSec);
+    // ── State ──────────────────────────────────────────────────────────────
+    bool m_gatewayActive = false;
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    static qreal parseBw(const QString &bwStr);
+    static QString formatBw(qreal bytesPerSec);
 };
 
 } // namespace gui

@@ -18,6 +18,7 @@
 #include "SettingsPage.h"
 #include "BlockedDevicesPage.h"
 #include "VulnerabilityPage.h"
+#include "BandwidthPage.h"
 
 namespace gui { 
     class IPCalculatorPage; 
@@ -25,6 +26,7 @@ namespace gui {
     class DHCPPage;
     class TrafficPage;
     class RouterPage;
+    class BandwidthPage;
 }
 
 namespace gui {
@@ -63,6 +65,7 @@ private:
     SettingsPage *m_settingsPage = nullptr;
     BlockedDevicesPage *m_blockedDevicesPage = nullptr;
     VulnerabilityPage *m_vulnerabilityPage = nullptr;
+    BandwidthPage     *m_bandwidthPage     = nullptr;
 
     // Custom UI Components
     QWidget        *m_customToolBar  = nullptr;

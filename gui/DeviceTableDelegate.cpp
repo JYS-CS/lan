@@ -33,6 +33,43 @@ void DeviceTableDelegate::loadFonts() {
 QSize DeviceTableDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
     QSize size = QStyledItemDelegate::sizeHint(option, index);
     size.setHeight(64);
+
+    QString text = index.data(Qt::DisplayRole).toString();
+    QFont font = m_standardFont;
+    int extraPadding = 24; // 12px left + 12px right
+
+    switch (index.column()) {
+        case DeviceTableModel::ColIP:
+            font = m_boldMonoFont;
+            break;
+        case DeviceTableModel::ColMAC:
+            font = m_monoFont;
+            break;
+        case DeviceTableModel::ColHostname:
+            font = m_standardFont;
+            if (index.data(DeviceTableModel::IsHostRole).toBool()) {
+                extraPadding += 75; // Space for "THIS HOST" pill
+            }
+            break;
+        case DeviceTableModel::ColType:
+        case DeviceTableModel::ColLatency:
+            font = m_standardFont;
+            break;
+        case DeviceTableModel::ColStatus:
+            size.setWidth(80);
+            return size;
+        case DeviceTableModel::ColVendor:
+            extraPadding += 24;
+            break;
+        case DeviceTableModel::ColBlock:
+            size.setWidth(90);
+            return size;
+    }
+
+    QFontMetrics fm(font);
+    int textW = fm.horizontalAdvance(text);
+    size.setWidth(qMax(size.width(), textW + extraPadding));
+    
     return size;
 }
 
@@ -190,6 +227,76 @@ void DeviceTableDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
             painter->setFont(m_standardFont);
             QRect textRect = contentRect.adjusted(dotSize + 8, 0, 0, 0);
             painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
+            break;
+        }
+        case DeviceTableModel::ColType: {
+            // ── Device type badge ──────────────────────────────────────────
+            bool isHost    = index.data(DeviceTableModel::IsHostRole).toBool();
+            bool isRouter  = text.contains("Router");
+            bool isUnknown = text == "Unknown";
+
+            QColor dotColor;
+            if (isHost)    dotColor = Theme::OpsAccentGreen;
+            else if (isRouter) dotColor = QColor(79, 127, 255); // blue
+            else if (isUnknown) dotColor = Theme::OpsAccentAmber;
+            else            dotColor = Theme::OpsTextDim;
+
+            int dotSize = 6;
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(dotColor);
+            painter->drawEllipse(contentRect.left(),
+                                 contentRect.center().y() - dotSize / 2,
+                                 dotSize, dotSize);
+
+            painter->setFont(m_standardFont);
+            painter->setPen(isUnknown ? Theme::OpsAccentAmber
+                                      : (isHost ? Theme::OpsAccentGreen : Theme::OpsTextDim));
+            QRect textRect = contentRect.adjusted(dotSize + 6, 0, 0, 0);
+            painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
+            break;
+        }
+        case DeviceTableModel::ColLatency: {
+            // ── Latency pill ───────────────────────────────────────────────
+            // Fetch numeric ms from the model via the SortRole (most direct)
+            quint32 ms = index.data(DeviceTableModel::SortRole).toUInt();
+            bool unprobed = (ms == 9999 || text == "-");
+
+            QColor pillColor, textColor;
+            if (unprobed) {
+                pillColor = QColor(40, 50, 65);
+                textColor = QColor(80, 95, 115);
+            } else if (ms <= 10) {
+                pillColor = QColor(52, 228, 160, 25);
+                textColor = QColor(52, 228, 160);
+            } else if (ms <= 50) {
+                pillColor = QColor(245, 166, 35, 25);
+                textColor = QColor(245, 166, 35);
+            } else if (ms <= 150) {
+                pillColor = QColor(255, 140, 66, 25);
+                textColor = QColor(255, 140, 66);
+            } else {
+                pillColor = QColor(255, 92, 92, 25);
+                textColor = QColor(255, 92, 92);
+            }
+
+            QString displayText = unprobed ? "—" : text;
+
+            QFontMetrics fm(m_monoFont);
+            int textW = fm.horizontalAdvance(displayText) + 16;
+            int pillH = 20;
+            int pillX = contentRect.left();
+            int pillY = contentRect.center().y() - pillH / 2;
+            QRect pillRect(pillX, pillY, qMin(textW, contentRect.width()), pillH);
+
+            QPainterPath pill;
+            pill.addRoundedRect(pillRect, 6, 6);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(pillColor);
+            painter->drawPath(pill);
+
+            painter->setFont(m_monoFont);
+            painter->setPen(textColor);
+            painter->drawText(pillRect, Qt::AlignCenter, displayText);
             break;
         }
         case DeviceTableModel::ColBlock: {

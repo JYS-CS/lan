@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QScrollArea>
 #include <QFrame>
+#include <QPushButton>
 
 namespace gui {
 
@@ -77,6 +78,17 @@ SettingsPage::SettingsPage(QWidget *parent) : QWidget(parent) {
     ));
     swDownload->setChecked(cfg->showDownloadColumn());
     connect(swDownload, &ToggleSwitch::toggled, cfg, &AppSettings::setShowDownloadColumn);
+
+    cv->addWidget(makeSection("DATA MANAGEMENT"));
+    
+    ToggleSwitch *swAutoClear = nullptr;
+    cv->addWidget(makeRow(
+        "Auto-Clear Historical Blocked Devices",
+        "Automatically clear blocked devices associated with other networks when joining a new network.",
+        &swAutoClear
+    ));
+    swAutoClear->setChecked(cfg->autoClearHistoricalDevices());
+    connect(swAutoClear, &ToggleSwitch::toggled, cfg, &AppSettings::setAutoClearHistoricalDevices);
 
     cv->addStretch();
 }

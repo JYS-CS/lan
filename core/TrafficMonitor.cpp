@@ -112,12 +112,33 @@ void TrafficMonitor::calculateRates() {
 
     for (auto it = m_deviceStats.begin(); it != m_deviceStats.end(); ++it) {
         TrafficStats &stats = it.value();
-        
+
+        // Counter-wrap / reset detection: if the running total decreased,
+        // the TrafficMonitor was reset (service/iface restart). Skip the
+        // delta this tick to avoid a huge bogus spike.
+        quint64 upDelta   = 0;
+        quint64 downDelta = 0;
+        if (stats.totalBytesUp >= stats.lastSnapUp) {
+            upDelta = stats.totalBytesUp - stats.lastSnapUp;
+        } else {
+            // Reset detected — keep counters, discard delta
+            stats.lastSnapUp = stats.totalBytesUp;
+        }
+        if (stats.totalBytesDown >= stats.lastSnapDown) {
+            downDelta = stats.totalBytesDown - stats.lastSnapDown;
+        } else {
+            stats.lastSnapDown = stats.totalBytesDown;
+        }
+
         // Dynamically scale delta math to normalize strictly over 1 real-world second
-        stats.currentRateUp = static_cast<quint64>((stats.totalBytesUp - stats.lastSnapUp) * multiplier);
-        stats.currentRateDown = static_cast<quint64>((stats.totalBytesDown - stats.lastSnapDown) * multiplier);
-        
-        stats.lastSnapUp = stats.totalBytesUp;
+        stats.currentRateUp   = static_cast<quint32>(upDelta   * multiplier);
+        stats.currentRateDown = static_cast<quint32>(downDelta * multiplier);
+
+        // Update session peak (never decreases)
+        if (stats.currentRateUp   > stats.peakRateUp)   stats.peakRateUp   = stats.currentRateUp;
+        if (stats.currentRateDown > stats.peakRateDown) stats.peakRateDown = stats.currentRateDown;
+
+        stats.lastSnapUp   = stats.totalBytesUp;
         stats.lastSnapDown = stats.totalBytesDown;
     }
     

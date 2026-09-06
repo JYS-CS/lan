@@ -29,14 +29,23 @@ void DeviceTable::initTable() {
     setItemDelegate(m_delegate);
     
     horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColIP, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColMAC, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColHostname, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColType, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColLatency, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColStatus, QHeaderView::ResizeToContents);
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColBlock, QHeaderView::ResizeToContents);
     horizontalHeader()->setStretchLastSection(true);
     horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     horizontalHeader()->setStyleSheet(
-        "QHeaderView::section { background: #0a0d12; color: #7c8798; font-family: 'JetBrains Mono', monospace; "
-        "font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; "
-        "padding: 12px 15px; border: none; border-bottom: 1px solid #1c232c; }"
-        "QHeaderView::section:hover { color: #dbe4ee; }"
+        "QHeaderView::section { background: #0a0d12; color: #dbe4ee; font-family: 'JetBrains Mono', monospace; "
+        "font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; "
+        "padding: 12px 15px; padding-left: 24px; border: none; border-bottom: 1px solid #1c232c; }"
+        "QHeaderView::section:hover { color: #ffffff; }"
         "QHeaderView { background: #0a0d12; border: none; }"
+        "QHeaderView::up-arrow { subcontrol-position: center left; left: 8px; image: url(:/resources/sort_up.svg); width: 14px; height: 14px; }"
+        "QHeaderView::down-arrow { subcontrol-position: center left; left: 8px; image: url(:/resources/sort_down.svg); width: 14px; height: 14px; }"
     );
     
     setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -68,9 +77,9 @@ void DeviceTable::initTable() {
         }
     });
 
-    // Fix the block column to a compact width so it doesn't stretch
-    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColBlock, QHeaderView::Fixed);
-    horizontalHeader()->resizeSection(DeviceTableModel::ColBlock, 90);
+    // Block column is always shown, but size controlled by ResizeToContents
+    // horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColBlock, QHeaderView::Fixed);
+    // horizontalHeader()->resizeSection(DeviceTableModel::ColBlock, 90);
     // Hidden by default — only shown when DHCP gateway is active
     setColumnHidden(DeviceTableModel::ColBlock, true);
 }

@@ -9,10 +9,11 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QPropertyAnimation>
+#include <QVariantAnimation>
+#include <QPainter>
 #include "DeviceTable.h"
 #include "TopologyWidget.h"
-#include "BandwidthChartWidget.h"
-#include "TopTalkersWidget.h"
+#include "TopologyWidget.h"
 #include "../core/NetworkManager.h"
 
 namespace gui {
@@ -30,7 +31,6 @@ public slots:
     void updateDevices(const QList<core::Device> &devices);
     void updateGatewayStatus(bool active);
     void setGatewayModeActive(bool active);
-    void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
     void onGlobalTrafficStats(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
 
 private slots:
@@ -44,30 +44,25 @@ private slots:
 private:
     void setupUi();
     void applyTheme();
-    QWidget* createStatCard(const QString &label, const QString &color,
-                            QLabel **countPtr, const QString &objName = "StatCard");
+    QWidget* createHeaderStat(const QString &iconPath, const QString &color,
+                              QLabel **countPtr, const QString &tooltip);
 
     core::NetworkManager *m_networkManager;
 
     // ── Layout containers ──────────────────────────────────────────────────
-    QWidget *m_analyticsPanel = nullptr;  // hidden when gateway is off
-    QWidget *m_bwUpCard       = nullptr;
-    QWidget *m_bwDownCard     = nullptr;
+    // ── Layout containers ──────────────────────────────────────────────────
     QWidget *m_blockedCard    = nullptr;
+    QWidget *m_headerStatsContainer = nullptr;
 
     // ── Widgets ────────────────────────────────────────────────────────────
     DeviceTable          *m_deviceTable      = nullptr;
     TopologyWidget       *m_topologyWidget   = nullptr;
-    BandwidthChartWidget *m_bandwidthChart   = nullptr;
-    TopTalkersWidget     *m_topTalkersWidget = nullptr;
 
-    // ── Gateway badge ──────────────────────────────────────────────────────
-    QLabel *m_gatewayBadge = nullptr;
+    // ── Gateway ────────────────────────────────────────────────────────────
 
     // ── KPI labels ─────────────────────────────────────────────────────────
     QLabel *m_onlineCount   = nullptr;
-    QLabel *m_uploadTotal   = nullptr;
-    QLabel *m_downloadTotal = nullptr;
+    QLabel *m_offlineCount  = nullptr;
     QLabel *m_unknownCount  = nullptr;
     QLabel *m_blockedCount  = nullptr;
 
@@ -76,6 +71,7 @@ private:
     QPushButton        *m_refreshBtn = nullptr;
     QLineEdit          *m_searchEdit = nullptr;
     QPropertyAnimation *m_searchAnim = nullptr;
+    QVariantAnimation  *m_spinAnim   = nullptr;
     bool                m_searchOpen = false;
 
     // ── Footer ─────────────────────────────────────────────────────────────
@@ -90,9 +86,6 @@ private:
     // ── State ──────────────────────────────────────────────────────────────
     bool m_gatewayActive = false;
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-    static qreal parseBw(const QString &bwStr);
-    static QString formatBw(qreal bytesPerSec);
 };
 
 } // namespace gui

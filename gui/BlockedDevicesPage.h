@@ -6,7 +6,10 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
+#include <QLineEdit>
 #include <QVariantList>
+#include <QVariantAnimation>
+#include <QPainter>
 #include "../core/NetworkManager.h"
 
 namespace gui {
@@ -25,6 +28,9 @@ public slots:
 
 private slots:
     void onBlockedDevicesReady(const QVariantList &entries);
+    void onSearchChanged(const QString &text);
+    void onItemChanged(QTableWidgetItem *item);
+    void onGatewayModeChanged(bool active);
 
 private:
     void setupUi();
@@ -37,6 +43,11 @@ private:
     QTableWidget *m_table;
     QLabel *m_footerLiveDot;
     QLabel *m_footerCountLabel;
+    QLineEdit *m_searchEdit;
+    QPushButton *m_refreshBtn;
+    QVariantAnimation *m_spinAnim;
+    bool m_populating = false;
+    QLabel *m_dhcpWarningLabel;
 };
 
 } // namespace gui

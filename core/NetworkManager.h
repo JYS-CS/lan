@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QHostAddress>
 #include <QList>
 #include <QString>
 #include <QThread>
@@ -23,6 +24,7 @@
 #include "Types.h"
 #include "RouterDetector.h"
 #include "VulnerabilityScanner.h"
+#include "BandwidthEngine.h"
 
 // Forward-declare pcap types to avoid pulling pcap.h into every TU
 struct pcap;
@@ -93,6 +95,12 @@ public:
     RouterInfo  getRouterInfo() const;
     bool isGatewayModeActive() const { return m_gatewayModeActive; }
 
+    QString gatewayIp() const { return m_gatewayIp; }
+    QString gatewayMac() const { return m_gatewayMac; }
+    QString myIp() const { return QHostAddress(m_myIpAddr).toString(); }
+    QString myMac() const { return m_myMac; }
+    QString interfaceName() const { return m_interfaceName; }
+
 signals:
     void devicesUpdated(const QList<core::Device> &devices);
     void scanError(const QString &msg);
@@ -115,6 +123,12 @@ signals:
     void trafficUpdated(const QMap<QString, core::TrafficStats> &stats);
     void globalTrafficStatsUpdated(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
 
+    // Bandwidth signals (MAC-keyed, from BandwidthEngine)
+    void bandwidthUpdated(const QList<core::DeviceBandwidth> &devices);
+    void topTalkersUpdated(const QList<core::DeviceBandwidth> &topDevices);
+    void lanStatsUpdated(quint64 rxTotal, quint64 txTotal, quint32 rxRate, quint32 txRate);
+    void topologyDetected(core::TopologyCapability capability);
+
     // Gateway / blocking signals
     // Blocking is only meaningful once this machine both runs the DHCP
     // server AND has Intercept enabled (i.e. is actually in the traffic
@@ -134,6 +148,7 @@ signals:
 public slots:
     void onRefreshRequested();
     void triggerRouterDetection(bool force = false);
+    void setGatewayMac(const QString &mac);
     void setGatewayModeActive(bool active);
     void blockDevice(const QString &mac, const QString &reason = QString("Blocked by admin"));
     void unblockDevice(const QString &mac);
@@ -148,6 +163,7 @@ private slots:
     void onHostnameDiscovered(const QHostAddress &ip, const QString &hostname);
     void cleanUpStaleDevices();
     void runScan();
+    void refreshLatencies();  // Fan-out ICMP pings to all online devices
 
 private:
     void step1_readArpCache();
@@ -156,6 +172,10 @@ private:
     void step2_arpSweep(const QString &iface, quint32 networkAddr, quint32 broadcastAddr, quint32 myIp, const QString &myMac);
     void step3_probeUnconfirmed(const QString &iface, quint32 networkAddr, quint32 broadcastAddr, quint32 myIp);
     void step4_fingerprint(const QString &iface);
+
+    // Device type classification (DHCP vendor class + MAC OUI + hostname heuristics)
+    static QString inferDeviceType(const QString &vendor, const QString &hostname,
+                                   const QString &status, const QString &dhcpVendorClass = QString());
 
     QString getMyMac(const QString &iface);
     QString getGatewayIP();
@@ -184,8 +204,10 @@ private:
     QThread        *m_routerThread    = nullptr;
     bool            m_gatewayModeActive = false;
 
-    VulnerabilityScanner *m_vulnScanner = nullptr;
-    QThread              *m_vulnThread  = nullptr;
+    VulnerabilityScanner *m_vulnScanner   = nullptr;
+    QThread              *m_vulnThread    = nullptr;
+
+    BandwidthEngine      *m_bwEngine      = nullptr;
 
     QString m_interfaceName;
     QString m_gatewayIp;
@@ -196,6 +218,8 @@ private:
     QThread        *m_snifferThread  = nullptr;
     QThread        *m_captureThread  = nullptr;
     QTimer         *m_cleanupTimer    = nullptr;
+    QTimer         *m_latencyTimer    = nullptr;  // fires every 5 s
+    QHash<QString, quint32> m_latencyMap;         // IP → latest RTT in ms
 
     QSet<QString>  m_confirmedIps;
     quint32        m_myIpAddr         = 0;

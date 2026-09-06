@@ -44,7 +44,8 @@ public:
 
 public slots:
     void updateTraffic(const QMap<QString, core::TrafficStats> &stats);
-    void updateGlobalStats(quint64 totalIn, quint64 totalOut, double pps);
+    // Signature matches NetworkManager::globalTrafficStatsUpdated(int, double, quint64, quint64)
+    void updateGlobalStats(int packetCount, double pps, quint64 totalIn, quint64 totalOut);
 
 private:
     void setupUi();

@@ -12,11 +12,13 @@ public:
     bool showSparklines()    const { return m_showSparklines; }
     bool showUploadColumn()  const { return m_showUpload; }
     bool showDownloadColumn() const { return m_showDownload; }
+    bool autoClearHistoricalDevices() const { return m_autoClear; }
 
 public slots:
     void setShowSparklines(bool v);
     void setShowUploadColumn(bool v);
     void setShowDownloadColumn(bool v);
+    void setAutoClearHistoricalDevices(bool v);
 
 signals:
     void settingsChanged();
@@ -26,6 +28,7 @@ private:
     bool m_showSparklines = true;
     bool m_showUpload     = true;
     bool m_showDownload   = true;
+    bool m_autoClear      = false;
     QSettings m_qs;
 };
 

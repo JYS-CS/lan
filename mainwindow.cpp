@@ -56,12 +56,17 @@ void MainWindow::setupToolBar() {
 }
 
 void MainWindow::setupCentralTable() {
-    m_deviceTable = new QTableWidget(0, 7, this);
-    QStringList headers = { "IP Address", "MAC Address", "Hostname", "Bandwidth Up", "Bandwidth Down", "Status", "Vendor" };
+    m_deviceTable = new QTableWidget(0, 9, this);
+    QStringList headers = { "IP Address", "MAC Address", "Hostname", "Bandwidth Up", "Bandwidth Down", "Status", "Vendor", "Type", "Action" };
     m_deviceTable->setHorizontalHeaderLabels(headers);
     m_deviceTable->setAlternatingRowColors(true);
     m_deviceTable->setSortingEnabled(true);
     m_deviceTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    m_deviceTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_deviceTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_deviceTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_deviceTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+    m_deviceTable->horizontalHeader()->setSectionResizeMode(8, QHeaderView::ResizeToContents);
     m_deviceTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_deviceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
@@ -119,12 +124,27 @@ void MainWindow::updateDeviceTable(const QList<Device> &devices) {
         int row = m_deviceTable->rowCount();
         m_deviceTable->insertRow(row);
         m_deviceTable->setItem(row, 0, new QTableWidgetItem(dev.ip));
-        m_deviceTable->setItem(row, 1, new QTableWidgetItem(dev.mac));
+        m_deviceTable->setItem(row, 1, new QTableWidgetItem(dev.mac.toUpper()));
         m_deviceTable->setItem(row, 2, new QTableWidgetItem(dev.hostname));
         m_deviceTable->setItem(row, 3, new QTableWidgetItem(dev.upBandwidth));
         m_deviceTable->setItem(row, 4, new QTableWidgetItem(dev.downBandwidth));
         m_deviceTable->setItem(row, 5, new QTableWidgetItem(dev.status));
         m_deviceTable->setItem(row, 6, new QTableWidgetItem(dev.vendor));
+        
+        QString type = "Unknown";
+        QString v = dev.vendor.toLower();
+        QString h = dev.hostname.toLower();
+        if (v.contains("apple") || h.contains("iphone") || h.contains("ipad") || h.contains("mac")) type = "Apple";
+        else if (v.contains("android") || v.contains("samsung") || v.contains("xiaomi") || v.contains("huawei") || v.contains("oppo") || v.contains("vivo") || h.contains("android")) type = "Android";
+        else if (v.contains("intel") || v.contains("dell") || v.contains("hp") || v.contains("lenovo") || v.contains("microsoft") || v.contains("asus") || v.contains("acer") || v.contains("msi") || h.contains("pc") || h.contains("laptop") || h.contains("desktop")) type = "PC";
+        
+        m_deviceTable->setItem(row, 7, new QTableWidgetItem(type));
+        
+        QPushButton* blockBtn = new QPushButton("Block");
+        connect(blockBtn, &QPushButton::clicked, this, [this, ip = dev.ip]() {
+            this->updateStatus("Blocking device " + ip + "...");
+        });
+        m_deviceTable->setCellWidget(row, 8, blockBtn);
     }
     m_deviceTable->setSortingEnabled(true);
 }
@@ -150,7 +170,7 @@ void MainWindow::applyStyleSheet() {
     setStyleSheet(
         "QMainWindow { background-color: #2b2b2b; color: #ffffff; }"
         "QTableWidget { background-color: #3c3f41; alternate-background-color: #323537; gridline-color: #555555; color: #ffffff; }"
-        "QHeaderView::section { background-color: #4e5254; color: #ffffff; padding: 4px; border: 1px solid #555555; }"
+        "QHeaderView::section { background-color: #4e5254; color: #ffffff; padding: 4px; border: 1px solid #555555; font-weight: bold; }"
         "QToolBar { background-color: #3c3f41; border-bottom: 1px solid #555555; }"
         "QPushButton { background-color: #4e5254; border: 1px solid #555555; padding: 5px; min-width: 80px; color: white; }"
         "QPushButton:disabled { background-color: #323537; color: #777777; }"

@@ -12,6 +12,19 @@ FirewallManager::FirewallManager(const QString &iface, QObject *parent)
 FirewallManager::~FirewallManager() {
     unblockAll();
 }
+
+void FirewallManager::start() {
+    if (m_active) return;
+    m_active = true;
+    initFirewall();
+}
+
+void FirewallManager::stop() {
+    if (!m_active) return;
+    m_active = false;
+    unblockAll();
+}
+
 void FirewallManager::initFirewall() {
     // Test if we have nft permissions
     int test = QProcess::execute("sh", QStringList() << "-c" << "nft list tables 2>/dev/null");
@@ -43,11 +56,18 @@ void FirewallManager::initFirewall() {
                 "{ type filter hook ingress device \"" + m_interface + "\" priority -500; }"});
     }
 
-    // 3. Sets for DHCP gateway mode — allowed leases & admin whitelist
+    // 3. Sets for DHCP gateway mode — allowed leases & admin whitelist & blocked macs
     runNft({"add", "set", "inet", m_tableName, "allowed_leases", "{ type ipv4_addr . ether_addr; }"});
     runNft({"add", "set", "inet", m_tableName, "whitelist", "{ type ether_addr; }"});
+    runNft({"add", "set", "inet", m_tableName, "blocked_macs", "{ type ether_addr; }"});
+
+    if (!m_interface.isEmpty()) {
+        runNft({"add", "set", "netdev", m_tableName + "_layer2", "blocked_macs", "{ type ether_addr; }"});
+        runNft({"add", "rule", "netdev", m_tableName + "_layer2", "ingress", "ether", "saddr", "@blocked_macs", "drop"});
+    }
 
     runNft({"flush", "set", "inet", m_tableName, "allowed_leases"});
+    runNft({"flush", "set", "inet", m_tableName, "blocked_macs"});
 
     // Whitelist: admin traffic is never interfered with
     runNft({"add", "rule", "inet", m_tableName, "filter_input",   "ether", "saddr", "@whitelist", "accept"});
@@ -57,6 +77,7 @@ void FirewallManager::initFirewall() {
     // Restore persisted state
     syncWhitelistedMACs();
     syncAllowedLeases();
+    syncBlockedMACs();
 
     qInfo() << "[FirewallManager] Ready on interface" << (m_interface.isEmpty() ? "(none)" : m_interface);
 }

@@ -17,6 +17,8 @@ public:
 
 public slots:
     void setInterface(const QString &iface);
+    void start();
+    void stop();
     bool blockIP(const QString &ip);
     bool unblockIP(const QString &ip);
     bool blockMAC(const QString &mac);
@@ -59,6 +61,7 @@ private:
     QSet<QString> m_blockPageMACs;
     QMap<QString, QString> m_allowedLeases; // IP -> MAC
     bool m_available = false;
+    bool m_active = false;
 };
 
 } // namespace core

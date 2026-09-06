@@ -88,6 +88,10 @@ add_executable(LANMonitor
     gui/BlockedDevicesPage.cpp
     gui/VulnerabilityPage.h
     gui/VulnerabilityPage.cpp
+    gui/BandwidthPage.h
+    gui/BandwidthPage.cpp
+    core/BandwidthEngine.h
+    core/BandwidthEngine.cpp
     utils/Logger.h
 )
 

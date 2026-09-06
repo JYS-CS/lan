@@ -45,8 +45,29 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
             case ColIP: return dev.ip();
-            case ColMAC: return dev.mac();
+            case ColMAC: return dev.mac().toUpper();
             case ColHostname: return dev.alias().isEmpty() ? dev.hostname() : dev.alias();
+            case ColType: {
+                // Prefer persisted device type (set by DHCP/ARP enrichment);
+                // fall back to runtime heuristics for legacy records.
+                if (!dev.deviceType().isEmpty() && dev.deviceType() != "Unknown")
+                    return dev.deviceType();
+                // Runtime heuristic fallback
+                QString v = dev.vendor().toLower();
+                QString h = dev.hostname().toLower();
+                QString s = dev.status().toLower();
+                if (s.contains("self"))    return QString("Linux PC");
+                if (s.contains("gateway")) return QString("Router");
+                if (v.contains("apple") || h.contains("iphone") || h.contains("ipad") || h.contains("macbook")) return QString("Apple");
+                if (v.contains("samsung") || v.contains("xiaomi") || v.contains("huawei") || v.contains("oppo") || v.contains("vivo")) return QString("Android");
+                if (v.contains("raspberry") || h.contains("raspberrypi")) return QString("Raspberry Pi");
+                if (v.contains("espressif") || v.contains("tuya") || h.contains("esp") || h.contains("iot")) return QString("IoT Device");
+                if (v.contains("intel") || v.contains("dell") || v.contains("hp") || v.contains("lenovo") ||
+                    v.contains("microsoft") || v.contains("asus") || v.contains("acer") || v.contains("msi") ||
+                    h.contains("-pc") || h.contains("laptop") || h.contains("desktop")) return QString("PC");
+                return QString("Unknown");
+            }
+            case ColLatency: return dev.latency();
             case ColUp: return dev.upBandwidth();
             case ColDown: return dev.downBandwidth();
             case ColStatus: return dev.status();
@@ -63,6 +84,10 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
                 if (parts.size() != 4) return dev.ip();
                 quint32 ipInt = (parts[0].toUInt() << 24) | (parts[1].toUInt() << 16) | (parts[2].toUInt() << 8) | parts[3].toUInt();
                 return ipInt;
+            }
+            case ColLatency: {
+                // Sort by numeric ms; unprobed (9999) sorts last
+                return dev.latencyMs();
             }
             case ColUp: return parseBandwidth(dev.upBandwidth());
             case ColDown: return parseBandwidth(dev.downBandwidth());
@@ -109,6 +134,8 @@ QVariant DeviceTableModel::headerData(int section, Qt::Orientation orientation, 
             case ColIP: return "IP ADDRESS";
             case ColMAC: return "MAC ADDRESS";
             case ColHostname: return "HOSTNAME";
+            case ColType: return "DEVICE TYPE";
+            case ColLatency: return "LATENCY";
             case ColUp: return "UP";
             case ColDown: return "DOWN";
             case ColStatus: return "STATUS";

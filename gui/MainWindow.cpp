@@ -8,6 +8,7 @@
 #include <QIcon>
 #include <QNetworkInterface>
 #include <QMenu>
+#include "../core/DatabaseManager.h"
 #include <QToolButton>
 #include "DHCPPage.h"
 #include "IPCalculatorPage.h"
@@ -60,6 +61,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Router detection
     connect(m_networkManager, &core::NetworkManager::routerInfoReady,     m_routerPage, &RouterPage::updateInfo);
     connect(m_networkManager, &core::NetworkManager::routerDetectionStage, m_routerPage, &RouterPage::setDetectionStage);
+    // Bandwidth page (MAC-keyed, from BandwidthEngine)
+    connect(m_networkManager, &core::NetworkManager::bandwidthUpdated,
+            m_bandwidthPage, &BandwidthPage::onBandwidthUpdated);
+    connect(m_networkManager, &core::NetworkManager::topTalkersUpdated,
+            m_bandwidthPage, &BandwidthPage::onTopTalkersUpdated);
+    connect(m_networkManager, &core::NetworkManager::lanStatsUpdated,
+            m_bandwidthPage, &BandwidthPage::onLanStatsUpdated);
+    connect(m_networkManager, &core::NetworkManager::topologyDetected,
+            m_bandwidthPage, &BandwidthPage::onTopologyDetected);
     // Context Menu / Expansion Logic
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::aliasRequested, m_networkManager, &core::NetworkManager::updateDeviceAlias);
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::whitelistRequested, m_networkManager, &core::NetworkManager::addWhitelistedMAC);
@@ -163,6 +173,10 @@ void MainWindow::setupUI() {
     // Page 8: Vulnerability Scanner Page
     m_vulnerabilityPage = new VulnerabilityPage(m_networkManager, this);
     m_centralStacked->addWidget(m_vulnerabilityPage);
+
+    // Page 9: Bandwidth Monitor Page
+    m_bandwidthPage = new BandwidthPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_bandwidthPage);
 
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
@@ -269,10 +283,11 @@ void MainWindow::setupToolBar() {
         return btn;
     };
 
-    // 2. MONITOR Dropdown
+    // 2. MONITOR Dropdown (Devices | Traffic | Bandwidth)
     hLayout->addWidget(createGroupDropdown("Monitor", ":/resources/monitor.svg", {
-        {"Devices", ":/resources/monitor.svg", 1}, 
-        {"Traffic", ":/resources/traffic.svg", 2}
+        {"Devices",    ":/resources/monitor.svg",  1},
+        {"Traffic",    ":/resources/traffic.svg",  2},
+        {"Bandwidth",  ":/resources/traffic.svg",  9}
     }));
     hLayout->addWidget(createDivider());
 

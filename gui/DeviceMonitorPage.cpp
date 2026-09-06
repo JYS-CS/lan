@@ -36,20 +36,18 @@ DeviceMonitorPage::DeviceMonitorPage(core::NetworkManager *networkManager, QWidg
                 this, &DeviceMonitorPage::setGatewayModeActive);
 
         // Traffic feeds into chart + top talkers
-        connect(m_networkManager, &core::NetworkManager::trafficUpdated,
-                this, &DeviceMonitorPage::onTrafficUpdated);
         connect(m_networkManager, &core::NetworkManager::globalTrafficStatsUpdated,
                 this, &DeviceMonitorPage::onGlobalTrafficStats);
 
         // Keep blocked count KPI current when blocks change
         connect(m_networkManager, &core::NetworkManager::deviceBlocked,
                 this, [this](const QString &) {
-                    int n = core::DatabaseManager::instance().getBlacklist().size();
+                    int n = core::DatabaseManager::instance().getBlacklist(m_networkManager->gatewayMac()).size();
                     if (m_blockedCount) m_blockedCount->setText(QString::number(n));
                 });
         connect(m_networkManager, &core::NetworkManager::deviceUnblocked,
                 this, [this](const QString &) {
-                    int n = core::DatabaseManager::instance().getBlacklist().size();
+                    int n = core::DatabaseManager::instance().getBlacklist(m_networkManager->gatewayMac()).size();
                     if (m_blockedCount) m_blockedCount->setText(QString::number(n));
                 });
 
@@ -86,27 +84,29 @@ void DeviceMonitorPage::setupUi() {
     hl->setSpacing(10);
 
     // Title
-    auto *titleCol = new QVBoxLayout();
-    titleCol->setSpacing(2);
-    auto *eyebrow = new QLabel("NETWORK OPERATIONS CENTER", this);
-    eyebrow->setStyleSheet(
-        "color: #4d5666; font-family: 'JetBrains Mono', monospace; "
-        "font-size: 9px; font-weight: bold; letter-spacing: 0.18em;");
-    auto *title = new QLabel("LAN Monitor", this);
+    auto *title = new QLabel("NETWORK OPERATIONS", this);
     title->setStyleSheet(
-        "color: #dbe4ee; font-size: 20px; font-weight: bold; font-family: 'Inter', sans-serif;");
-    titleCol->addWidget(eyebrow);
-    titleCol->addWidget(title);
-    hl->addLayout(titleCol);
+        "color: #dbe4ee; font-family: 'Inter', sans-serif; font-size: 16px; font-weight: bold; letter-spacing: 0.05em;");
+    hl->addWidget(title);
     hl->addSpacing(20);
 
-    // Gateway badge — hidden until active
-    m_gatewayBadge = new QLabel("⬡  GATEWAY ACTIVE", this);
-    m_gatewayBadge->setObjectName("GatewayBadge");
-    m_gatewayBadge->setVisible(false);
-    hl->addWidget(m_gatewayBadge);
-
     hl->addStretch();
+
+    // ── Header Stats (Online, Offline, Unknown, Blocked) ──
+    m_headerStatsContainer = new QWidget(this);
+    auto *statsLayout = new QHBoxLayout(m_headerStatsContainer);
+    statsLayout->setContentsMargins(0, 0, 0, 0);
+    statsLayout->setSpacing(10);
+    
+    statsLayout->addWidget(createHeaderStat(":/resources/icon_devices_online.svg", "#34e4a0", &m_onlineCount, "Devices Online"));
+    statsLayout->addWidget(createHeaderStat(":/resources/icon_devices_offline.svg", "#8892b0", &m_offlineCount, "Devices Offline"));
+    statsLayout->addWidget(createHeaderStat(":/resources/icon_unknown_vendors.svg", "#f5a623", &m_unknownCount, "Unknown Vendors"));
+    m_blockedCard = createHeaderStat(":/resources/icon_blocked_devices.svg", "#ff5c5c", &m_blockedCount, "Blocked Devices");
+    m_blockedCard->setVisible(false);
+    statsLayout->addWidget(m_blockedCard);
+    
+    hl->addWidget(m_headerStatsContainer);
+    hl->addSpacing(16);
 
     // Search bar
     m_searchEdit = new QLineEdit(this);
@@ -138,13 +138,46 @@ void DeviceMonitorPage::setupUi() {
     m_refreshBtn->setFixedSize(34, 34);
     m_refreshBtn->setCursor(Qt::PointingHandCursor);
     m_refreshBtn->setToolTip("Rescan network");
-    m_refreshBtn->setIcon(Theme::tintedIcon(":/resources/refresh.svg", 17, Theme::OpsTextDim));
-    m_refreshBtn->setIconSize(QSize(17, 17));
+
+    auto createStaticIcon = [](const QString &color) {
+        QPixmap base(28, 28);
+        base.fill(Qt::transparent);
+        QPainter p(&base);
+        p.drawPixmap(5, 5, Theme::tintedIcon(":/resources/refresh.svg", 17, color).pixmap(17, 17));
+        return QIcon(base);
+    };
+
+    m_refreshBtn->setIcon(createStaticIcon("#7c8798")); // Theme::OpsTextDim
+    m_refreshBtn->setIconSize(QSize(28, 28));
+
+    m_spinAnim = new QVariantAnimation(this);
+    m_spinAnim->setDuration(600);
+    m_spinAnim->setStartValue(0.0);
+    m_spinAnim->setEndValue(360.0);
+    connect(m_spinAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
+        QPixmap base(28, 28);
+        base.fill(Qt::transparent);
+        QPainter p(&base);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setRenderHint(QPainter::SmoothPixmapTransform);
+        p.translate(14, 14);
+        p.rotate(value.toReal());
+        p.drawPixmap(-8, -8, Theme::tintedIcon(":/resources/refresh.svg", 17, "#34e4a0").pixmap(17, 17));
+        m_refreshBtn->setIcon(QIcon(base));
+    });
+    connect(m_spinAnim, &QVariantAnimation::finished, this, [this, createStaticIcon]() {
+        m_refreshBtn->setIcon(createStaticIcon("#7c8798"));
+    });
 
     connect(m_searchBtn,  &QPushButton::clicked, this, &DeviceMonitorPage::onSearchToggled);
-    connect(m_refreshBtn, &QPushButton::clicked, this, &DeviceMonitorPage::onRefreshRequested);
+    connect(m_refreshBtn, &QPushButton::clicked, this, [this]() {
+        if (m_spinAnim->state() != QAbstractAnimation::Running) {
+            m_spinAnim->start();
+        }
+        onRefreshRequested();
+    });
 
-    hl->addWidget(m_searchEdit);
+    hl->addWidget(m_searchEdit, 10);
     hl->addWidget(m_searchBtn);
     hl->addWidget(m_refreshBtn);
     hl->addSpacing(12);
@@ -155,52 +188,9 @@ void DeviceMonitorPage::setupUi() {
 
     root->addWidget(headerBar);
 
-    // ══════════════════════════════════════════════════════════════════════
-    // KPI STRIP  (stat cards)
-    // ══════════════════════════════════════════════════════════════════════
-    auto *statStrip = new QWidget(this);
-    statStrip->setObjectName("StatStrip");
-    auto *sl = new QHBoxLayout(statStrip);
-    sl->setContentsMargins(24, 0, 24, 16);
-    sl->setSpacing(12);
 
-    sl->addWidget(createStatCard("DEVICES ONLINE",  "#34e4a0", &m_onlineCount));
-    sl->addWidget(createStatCard("UNKNOWN VENDORS", "#f5a623", &m_unknownCount));
 
-    // These three cards are DHCP-gateway-only — hidden initially
-    m_bwUpCard   = createStatCard("TOTAL UPLOAD ↑",   "#4f7fff", &m_uploadTotal);
-    m_bwDownCard = createStatCard("TOTAL DOWNLOAD ↓", "#5eead4", &m_downloadTotal);
-    m_blockedCard= createStatCard("BLOCKED DEVICES",  "#ff5c5c", &m_blockedCount);
-    m_bwUpCard->setVisible(false);
-    m_bwDownCard->setVisible(false);
-    m_blockedCard->setVisible(false);
-    sl->addWidget(m_bwUpCard);
-    sl->addWidget(m_bwDownCard);
-    sl->addWidget(m_blockedCard);
-    sl->addStretch();
 
-    root->addWidget(statStrip);
-
-    // ══════════════════════════════════════════════════════════════════════
-    // ANALYTICS PANEL  (DHCP-gateway-only — hidden until active)
-    // ══════════════════════════════════════════════════════════════════════
-    m_analyticsPanel = new QWidget(this);
-    m_analyticsPanel->setObjectName("AnalyticsPanel");
-    m_analyticsPanel->setVisible(false);
-
-    auto *al = new QHBoxLayout(m_analyticsPanel);
-    al->setContentsMargins(24, 0, 24, 14);
-    al->setSpacing(12);
-
-    m_bandwidthChart   = new BandwidthChartWidget(m_analyticsPanel);
-    m_topTalkersWidget = new TopTalkersWidget(m_analyticsPanel);
-    m_bandwidthChart->setMinimumHeight(160);
-    m_topTalkersWidget->setMinimumHeight(160);
-
-    al->addWidget(m_bandwidthChart, 6);   // 60% width
-    al->addWidget(m_topTalkersWidget, 4); // 40% width
-
-    root->addWidget(m_analyticsPanel);
 
     // ══════════════════════════════════════════════════════════════════════
     // DEVICE TABLE
@@ -258,27 +248,27 @@ void DeviceMonitorPage::setupUi() {
 // Stat card factory
 // ─────────────────────────────────────────────────────────────────────────────
 
-QWidget* DeviceMonitorPage::createStatCard(const QString &label, const QString &color,
-                                            QLabel **countPtr, const QString &objName) {
-    auto *card = new QWidget(this);
-    card->setObjectName(objName);
-    auto *l = new QVBoxLayout(card);
-    l->setContentsMargins(16, 14, 16, 14);
-    l->setSpacing(4);
+QWidget* DeviceMonitorPage::createHeaderStat(const QString &iconPath, const QString &color,
+                                             QLabel **countPtr, const QString &tooltip) {
+    auto *container = new QWidget(this);
+    container->setObjectName("HeaderStat");
+    container->setToolTip(tooltip);
+    auto *layout = new QHBoxLayout(container);
+    layout->setContentsMargins(8, 4, 8, 4);
+    layout->setSpacing(6);
 
-    auto *lbl = new QLabel(label, this);
-    lbl->setStyleSheet(
-        QString("font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: bold; "
-                "color: %1; letter-spacing: 0.12em; background: transparent;").arg(color));
+    auto *iconLabel = new QLabel(container);
+    iconLabel->setPixmap(Theme::tintedIcon(iconPath, 16, color).pixmap(16, 16));
+    iconLabel->setFixedSize(16, 16);
 
-    *countPtr = new QLabel("0", this);
-    (*countPtr)->setStyleSheet(
-        "font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 300; "
-        "color: #dbe4ee; background: transparent;");
+    auto *valLabel = new QLabel("0", container);
+    valLabel->setStyleSheet(QString("color: %1; font-weight: bold; font-family: 'Inter', sans-serif; font-size: 14px; background: transparent;").arg(color));
 
-    l->addWidget(lbl);
-    l->addWidget(*countPtr);
-    return card;
+    layout->addWidget(iconLabel);
+    layout->addWidget(valLabel);
+
+    if (countPtr) *countPtr = valLabel;
+    return container;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,27 +276,19 @@ QWidget* DeviceMonitorPage::createStatCard(const QString &label, const QString &
 // ─────────────────────────────────────────────────────────────────────────────
 
 void DeviceMonitorPage::setGatewayModeActive(bool active) {
-    if (m_gatewayActive == active) return;
     m_gatewayActive = active;
 
-    // Analytics panel (chart + top talkers)
-    m_analyticsPanel->setVisible(active);
-    if (active) Theme::fadeIn(m_analyticsPanel, 300);
-
-    // BW + blocked KPI cards
-    m_bwUpCard->setVisible(active);
-    m_bwDownCard->setVisible(active);
+    // blocked KPI cards
     m_blockedCard->setVisible(active);
 
     // Seed blocked count from DB when coming online
     if (active) {
-        int n = core::DatabaseManager::instance().getBlacklist().size();
+        int n = core::DatabaseManager::instance().getBlacklist(m_networkManager->gatewayMac()).size();
         if (m_blockedCount) m_blockedCount->setText(QString::number(n));
     }
 
     // Gateway badge
-    m_gatewayBadge->setVisible(active);
-    if (active) Theme::pulse(m_gatewayBadge);
+
 
     // PPS label
     m_ppsLabel->setVisible(active);
@@ -323,58 +305,29 @@ void DeviceMonitorPage::updateGatewayStatus(bool active) {
     if (m_topologyWidget) m_topologyWidget->setMode(active);
 }
 
-qreal DeviceMonitorPage::parseBw(const QString &bwStr) {
-    static const QRegularExpression re(R"(^([\d\.]+)\s*([KMGB]*)/s)");
-    QRegularExpressionMatch m = re.match(bwStr);
-    if (!m.hasMatch()) return 0.0;
-    qreal val = m.captured(1).toDouble();
-    QString u = m.captured(2);
-    if (u == "K" || u == "KB") val *= 1024;
-    else if (u == "M" || u == "MB") val *= 1024 * 1024;
-    else if (u == "G" || u == "GB") val *= 1024LL * 1024 * 1024;
-    return val;
-}
 
-QString DeviceMonitorPage::formatBw(qreal bps) {
-    if (bps < 1024)       return QString::number((int)bps) + " B/s";
-    if (bps < 1024*1024)  return QString::number(bps/1024.0,       'f', 1) + " KB/s";
-    return                       QString::number(bps/(1024.0*1024), 'f', 1) + " MB/s";
-}
 
 void DeviceMonitorPage::updateDevices(const QList<core::Device> &devices) {
     m_deviceTable->updateDevices(devices);
     m_lastUpdate = QDateTime::currentDateTime();
 
-    int online = 0, unknown = 0;
-    qreal totalUp = 0, totalDown = 0;
+    int online = 0, offline = 0, unknown = 0;
 
     for (const auto &d : devices) {
         QString s = d.status().toLower();
         if (s.contains("online") || s.contains("self")) ++online;
+        else ++offline;
+        
         if (d.vendor().toLower().contains("unknown")) ++unknown;
-        totalUp   += parseBw(d.upBandwidth());
-        totalDown += parseBw(d.downBandwidth());
     }
 
     if (m_onlineCount)   m_onlineCount->setText(QString::number(online));
+    if (m_offlineCount)  m_offlineCount->setText(QString::number(offline));
     if (m_unknownCount)  m_unknownCount->setText(QString::number(unknown));
-    if (m_uploadTotal)   m_uploadTotal->setText(formatBw(totalUp));
-    if (m_downloadTotal) m_downloadTotal->setText(formatBw(totalDown));
     m_totalHostCountLabel->setText(QString("%1 HOSTS SCANNED").arg(devices.size()));
-
-    // Feed top talkers (only meaningful when gateway is on, but widget is hidden anyway)
-    if (m_topTalkersWidget) m_topTalkersWidget->updateDevices(devices);
 }
 
-void DeviceMonitorPage::onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats) {
-    // Aggregate for bandwidth chart
-    quint64 upTotal = 0, downTotal = 0;
-    for (const auto &ts : stats) {
-        upTotal   += ts.currentRateUp;
-        downTotal += ts.currentRateDown;
-    }
-    if (m_bandwidthChart) m_bandwidthChart->addSample(upTotal, downTotal);
-}
+
 
 void DeviceMonitorPage::onGlobalTrafficStats(int /*packetCount*/, double pps,
                                               quint64 /*totalIn*/, quint64 /*totalOut*/) {
@@ -396,9 +349,11 @@ void DeviceMonitorPage::onSearchToggled() {
     m_searchAnim->start();
 
     if (m_searchOpen) {
+        if (m_headerStatsContainer) m_headerStatsContainer->setVisible(false);
         QTimer::singleShot(150, m_searchEdit, [this]() { m_searchEdit->setFocus(); });
         m_searchBtn->setIcon(Theme::tintedIcon(":/resources/cross.svg", 16, Theme::OpsAccentAmber));
     } else {
+        if (m_headerStatsContainer) m_headerStatsContainer->setVisible(true);
         m_searchEdit->clear();
         m_deviceTable->filterDevices("");
         m_searchBtn->setIcon(Theme::tintedIcon(":/resources/search.svg", 17, Theme::OpsAccentGreen));
@@ -437,10 +392,6 @@ void DeviceMonitorPage::onRefreshRequested() {
 void DeviceMonitorPage::onSelectionChanged(const QString &ip) { Q_UNUSED(ip); }
 
 void DeviceMonitorPage::applySettings() {
-    AppSettings *cfg = AppSettings::instance();
-    // BW cards are gated on gateway AND user pref
-    if (m_bwUpCard)   m_bwUpCard->setVisible(m_gatewayActive && cfg->showUploadColumn());
-    if (m_bwDownCard) m_bwDownCard->setVisible(m_gatewayActive && cfg->showDownloadColumn());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -463,11 +414,11 @@ void DeviceMonitorPage::applyTheme() {
         "  border-top: 1px solid #1c232c;"
         "}"
 
-        // KPI stat card
-        "QWidget#StatCard {"
-        "  background-color: #0f141b;"
+        // Header stat
+        "QWidget#HeaderStat {"
+        "  background: rgba(255,255,255,0.03);"
         "  border: 1px solid #1c232c;"
-        "  border-radius: 8px;"
+        "  border-radius: 6px;"
         "}"
 
         // Icon buttons (search/refresh) — ghost circle
@@ -496,18 +447,6 @@ void DeviceMonitorPage::applyTheme() {
         "}"
         "QLineEdit#SearchEdit:focus { border-color: #34e4a0; background: #12181f; }"
 
-        // Gateway active badge
-        "QLabel#GatewayBadge {"
-        "  background-color: rgba(52,228,160,0.10);"
-        "  color: #34e4a0;"
-        "  border: 1px solid rgba(52,228,160,0.30);"
-        "  border-radius: 10px;"
-        "  padding: 3px 12px;"
-        "  font-size: 10px;"
-        "  font-weight: bold;"
-        "  font-family: 'JetBrains Mono', monospace;"
-        "  letter-spacing: 0.10em;"
-        "}"
     );
 }
 

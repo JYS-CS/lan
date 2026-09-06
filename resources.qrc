@@ -35,5 +35,11 @@
         <file>resources/enterprise.svg</file>
         <file>resources/warning.svg</file>
         <file>resources/info.svg</file>
+        <file>resources/icon_devices_online.svg</file>
+        <file>resources/icon_devices_offline.svg</file>
+        <file>resources/icon_unknown_vendors.svg</file>
+        <file>resources/icon_blocked_devices.svg</file>
+        <file>resources/sort_up.svg</file>
+        <file>resources/sort_down.svg</file>
     </qresource>
 </RCC>

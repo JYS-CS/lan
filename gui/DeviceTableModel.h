@@ -17,6 +17,8 @@ public:
         ColIP = 0,
         ColMAC,
         ColHostname,
+        ColType,
+        ColLatency,
         ColUp,
         ColDown,
         ColStatus,

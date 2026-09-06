@@ -206,18 +206,19 @@ void TrafficPage::updateTraffic(const QMap<QString, core::TrafficStats> &stats) 
     }
 }
 
-void TrafficPage::updateGlobalStats(quint64 totalIn, quint64 totalOut, double pps) {
+void TrafficPage::updateGlobalStats(int packetCount, double pps, quint64 totalIn, quint64 totalOut) {
+    Q_UNUSED(packetCount)
     Q_UNUSED(pps)
     m_totalDownLabel->setText(formatBandwidth(totalIn));
     m_totalUpLabel->setText(formatBandwidth(totalOut));
-    
-    double currentUpRate = (totalOut > m_lastTotalUp) ? (totalOut - m_lastTotalUp) : 0;
-    double currentDownRate = (totalIn > m_lastTotalDown) ? (totalIn - m_lastTotalDown) : 0;
-    
-    m_lastTotalUp = totalOut;
+
+    double currentUpRate   = (totalOut > m_lastTotalUp)   ? (double)(totalOut - m_lastTotalUp)   : 0.0;
+    double currentDownRate = (totalIn  > m_lastTotalDown) ? (double)(totalIn  - m_lastTotalDown) : 0.0;
+
+    m_lastTotalUp   = totalOut;
     m_lastTotalDown = totalIn;
 
-    m_currentRateLabel->setText(formatBandwidth(currentUpRate + currentDownRate) + "/s");
+    m_currentRateLabel->setText(formatBandwidth((quint64)(currentUpRate + currentDownRate)) + "/s");
     m_mainChart->addData(currentUpRate, currentDownRate);
 }
 

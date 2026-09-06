@@ -554,6 +554,12 @@ void NetworkManager::setGatewayModeActive(bool active) {
 void NetworkManager::blockDevice(const QString &mac, const QString &reason) {
     if (mac.isEmpty()) return;
 
+    // Never allow this machine to block itself
+    if (!m_myMac.isEmpty() && mac.toLower() == m_myMac.toLower()) {
+        emit blockActionFailed("Cannot block the host device (this machine).");
+        return;
+    }
+
     // Blocking only makes sense while this machine is actually in the
     // traffic path — DHCP server running with Intercept/Gateway enabled.
     // Without that, blocking at the firewall level here has no effect on
@@ -574,6 +580,7 @@ void NetworkManager::blockDevice(const QString &mac, const QString &reason) {
     logEvent(core::NetworkEvent::Security, QString("Device blocked: %1 (%2)").arg(lMac, reason));
     emit deviceBlocked(lMac);
 }
+
 
 void NetworkManager::unblockDevice(const QString &mac) {
     if (mac.isEmpty()) return;

@@ -51,6 +51,7 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
             case ColDown: return dev.downBandwidth();
             case ColStatus: return dev.status();
             case ColVendor: return dev.vendor();
+            case ColBlock: return QVariant(); // painted by delegate
             default: return QVariant();
         }
     }
@@ -95,6 +96,9 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
     if (role == DownHistoryRole) {
         return QVariant::fromValue(m_downHistory.value(dev.mac()));
     }
+    if (role == MacRole) {
+        return dev.mac();
+    }
 
     return QVariant();
 }
@@ -109,6 +113,7 @@ QVariant DeviceTableModel::headerData(int section, Qt::Orientation orientation, 
             case ColDown: return "DOWN";
             case ColStatus: return "STATUS";
             case ColVendor: return "VENDOR";
+            case ColBlock: return "ACTION";
             default: return QVariant();
         }
     }

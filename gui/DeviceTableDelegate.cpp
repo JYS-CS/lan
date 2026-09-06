@@ -192,7 +192,55 @@ void DeviceTableDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
             painter->drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
             break;
         }
-    }
+        case DeviceTableModel::ColBlock: {
+            // Never show the block button for the host device
+            bool isHost = index.data(DeviceTableModel::IsHostRole).toBool();
+            if (isHost) break;
+
+            // Only show the button when this machine is acting as the gateway
+            if (!m_gatewayModeActive) {
+                // Draw a dim dash to signal the column is inactive
+                QFont dimFont = m_standardFont;
+                dimFont.setPointSize(10);
+                painter->setFont(dimFont);
+                painter->setPen(QColor(60, 70, 85));
+                painter->drawText(contentRect, Qt::AlignCenter, "—");
+                break;
+            }
+
+            // Draw a pill-shaped "Block" button centred in the cell
+            constexpr int btnW = 62;
+            constexpr int btnH = 24;
+            int cx = contentRect.center().x();
+            int cy = contentRect.center().y();
+            QRect btnRect(cx - btnW / 2, cy - btnH / 2, btnW, btnH);
+
+            // Hover highlight
+            bool hovered = (option.state & QStyle::State_MouseOver);
+            QColor bg  = hovered ? QColor(255, 92, 92, 45)  : QColor(255, 92, 92, 20);
+            QColor bdr = hovered ? QColor(255, 92, 92, 180) : QColor(255, 92, 92, 80);
+            QColor txt = QColor(255, 110, 110);
+
+            QPainterPath pill;
+            pill.addRoundedRect(btnRect, 6, 6);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(bg);
+            painter->drawPath(pill);
+
+            painter->setPen(bdr);
+            painter->setBrush(Qt::NoBrush);
+            painter->drawPath(pill);
+
+            QFont btnFont = m_standardFont;
+            btnFont.setPointSize(9);
+            btnFont.setBold(true);
+            painter->setFont(btnFont);
+            painter->setPen(txt);
+            painter->drawText(btnRect, Qt::AlignCenter, "Block");
+            break;
+        }
+        }
+
 
     painter->restore();
 }

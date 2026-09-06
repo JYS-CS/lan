@@ -21,6 +21,7 @@ public:
         ColDown,
         ColStatus,
         ColVendor,
+        ColBlock,   // Inline "Block" button column
         ColumnCount
     };
 
@@ -30,7 +31,8 @@ public:
         IsHostRole     = Qt::UserRole + 3,
         MaxBwRole      = Qt::UserRole + 4,
         UpHistoryRole  = Qt::UserRole + 5,
-        DownHistoryRole= Qt::UserRole + 6
+        DownHistoryRole= Qt::UserRole + 6,
+        MacRole        = Qt::UserRole + 7
     };
 
     explicit DeviceTableModel(QObject *parent = nullptr);

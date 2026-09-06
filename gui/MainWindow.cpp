@@ -71,6 +71,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_networkManager, &core::NetworkManager::deviceBlocked, this, [this](const QString &mac) {
         statusBar()->showMessage("Blocked device " + mac, 4000);
     });
+    connect(m_networkManager, &core::NetworkManager::gatewayModeChanged, this, [this](bool active) {
+        m_monitorPage->getDeviceTable()->setGatewayModeActive(active);
+    });
     
     connect(m_monitorPage->getDeviceTable(), &gui::DeviceTable::portScanRequested, this, [this](const QString &ip) {
         auto *dialog = new gui::PortScanDialog(ip, this);

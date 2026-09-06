@@ -2,6 +2,7 @@
 #include <QHeaderView>
 #include <QMenu>
 #include <QInputDialog>
+#include <QMouseEvent>
 #include "Theme.h"
 #include "AppSettings.h"
 
@@ -48,6 +49,7 @@ void DeviceTable::initTable() {
     setFocusPolicy(Qt::NoFocus);
     setSortingEnabled(true);
     sortByColumn(DeviceTableModel::ColStatus, Qt::AscendingOrder);
+    setMouseTracking(true); // needed so hover state fires for the block button
     
     setStyleSheet(
         "QTableView { background-color: #0a0d12; border: none; }"
@@ -65,6 +67,12 @@ void DeviceTable::initTable() {
             emit deviceSelected(dev.ip());
         }
     });
+
+    // Fix the block column to a compact width so it doesn't stretch
+    horizontalHeader()->setSectionResizeMode(DeviceTableModel::ColBlock, QHeaderView::Fixed);
+    horizontalHeader()->resizeSection(DeviceTableModel::ColBlock, 90);
+    // Hidden by default — only shown when DHCP gateway is active
+    setColumnHidden(DeviceTableModel::ColBlock, true);
 }
 
 void DeviceTable::updateDevices(const QList<core::Device> &devices) {
@@ -75,12 +83,21 @@ void DeviceTable::filterDevices(const QString &query) {
     m_proxy->setFilterFixedString(query);
 }
 
+void DeviceTable::setGatewayModeActive(bool active) {
+    if (m_gatewayModeActive == active) return;
+    m_gatewayModeActive = active;
+    m_delegate->setGatewayModeActive(active);
+    setColumnHidden(DeviceTableModel::ColBlock, !active); // show column only when gateway is on
+    viewport()->update();
+}
+
 void DeviceTable::onCustomContextMenu(const QPoint &pos) {
     QModelIndex index = indexAt(pos);
     if (!index.isValid()) return;
     
     QModelIndex srcIndex = m_proxy->mapToSource(index);
     core::Device dev = m_model->deviceAt(srcIndex.row());
+    bool isHost = m_model->data(srcIndex, DeviceTableModel::IsHostRole).toBool();
     
     QMenu menu(this);
     menu.setStyleSheet(
@@ -99,9 +116,6 @@ void DeviceTable::onCustomContextMenu(const QPoint &pos) {
     menu.addSeparator();
     QAction *whitelist = menu.addAction("Whitelist — Allow device");
     whitelist->setProperty("safe", true);
-    menu.addSeparator();
-    QAction *block = menu.addAction("Block Device");
-    block->setProperty("danger", true);
 
     QAction *selected = menu.exec(viewport()->mapToGlobal(pos));
     if (!selected) return;
@@ -112,7 +126,6 @@ void DeviceTable::onCustomContextMenu(const QPoint &pos) {
     else if (selected == rename) onRenameRequested(dev.mac(), dev.alias().isEmpty() ? dev.hostname() : dev.alias());
     else if (selected == audit) emit portScanRequested(dev.ip());
     else if (selected == whitelist) emit whitelistRequested(dev.mac());
-    else if (selected == block) emit blockRequested(dev.mac());
 }
 
 void DeviceTable::onRenameRequested(const QString &mac, const QString &oldAlias) {
@@ -133,4 +146,27 @@ void DeviceTable::applySettings() {
     viewport()->update();
 }
 
+void DeviceTable::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton) {
+        QModelIndex proxyIndex = indexAt(event->pos());
+        if (proxyIndex.isValid() && proxyIndex.column() == DeviceTableModel::ColBlock) {
+            // Block clicks when gateway mode is not active
+            if (!m_gatewayModeActive) return;
+
+            QModelIndex srcIndex = m_proxy->mapToSource(proxyIndex);
+            bool isHost = m_model->data(srcIndex, DeviceTableModel::IsHostRole).toBool();
+            if (!isHost) {
+                QString mac = m_model->data(srcIndex, DeviceTableModel::MacRole).toString();
+                if (!mac.isEmpty()) {
+                    emit blockRequested(mac);
+                    return; // consume the event — don't also select the row
+                }
+            }
+            return; // host row — swallow silently
+        }
+    }
+    QTableView::mousePressEvent(event);
+}
+
 } // namespace gui
+

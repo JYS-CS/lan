@@ -17,6 +17,7 @@ public:
 
     void updateDevices(const QList<core::Device> &devices);
     void filterDevices(const QString &query);
+    void setGatewayModeActive(bool active);
 
 signals:
     void whitelistRequested(const QString &mac);
@@ -31,10 +32,14 @@ private slots:
     void onRenameRequested(const QString &mac, const QString &oldAlias);
     void applySettings();
 
+protected:
+    void mousePressEvent(QMouseEvent *event) override;
+
 private:
     DeviceTableModel *m_model;
     QSortFilterProxyModel *m_proxy;
     DeviceTableDelegate *m_delegate;
+    bool m_gatewayModeActive = false;
     
     void initTable();
 };

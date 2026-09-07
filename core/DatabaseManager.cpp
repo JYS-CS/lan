@@ -97,6 +97,24 @@ bool DatabaseManager::setupSchema() {
                "PRIMARY KEY (network_id, mac))");
     }
 
+    // Device-identity correlation, used to recognize the same physical
+    // device across MAC address changes (see DeviceIdentityEngine).
+    q.exec("CREATE TABLE IF NOT EXISTS device_identities ("
+           "identity_id TEXT, "
+           "network_id TEXT, "
+           "fingerprint TEXT, "
+           "hostname TEXT, "
+           "client_id TEXT, "
+           "first_seen TEXT, "
+           "last_seen TEXT, "
+           "PRIMARY KEY (network_id, identity_id))");
+    q.exec("CREATE TABLE IF NOT EXISTS device_identity_macs ("
+           "network_id TEXT, "
+           "identity_id TEXT, "
+           "mac TEXT, "
+           "last_seen TEXT, "
+           "PRIMARY KEY (network_id, mac))");
+
     if (q.exec("PRAGMA table_info(whitelist)")) {
         bool hasNetworkId = false;
         while (q.next()) {
@@ -367,6 +385,76 @@ bool DatabaseManager::isWhitelisted(const QString &networkId, const QString &mac
     q.bindValue(":mac", mac.toLower());
     if (q.exec() && q.next()) return true;
     return false;
+}
+
+// ── Device identity correlation (see DeviceIdentityEngine) ────────────────────
+QString DatabaseManager::findIdentityByFingerprint(const QString &networkId, const QString &fingerprint, const QString &hostname) {
+    if (fingerprint.isEmpty() || hostname.isEmpty()) return {};
+    QSqlQuery q(m_db);
+    q.prepare("SELECT identity_id FROM device_identities WHERE network_id = :nid "
+              "AND fingerprint = :fp AND hostname = :hn LIMIT 1");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":fp", fingerprint);
+    q.bindValue(":hn", hostname.toLower());
+    if (q.exec() && q.next()) return q.value(0).toString();
+    return {};
+}
+
+QString DatabaseManager::findIdentityByClientId(const QString &networkId, const QString &clientId) {
+    if (clientId.isEmpty()) return {};
+    QSqlQuery q(m_db);
+    q.prepare("SELECT identity_id FROM device_identities WHERE network_id = :nid "
+              "AND client_id = :cid LIMIT 1");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":cid", clientId);
+    if (q.exec() && q.next()) return q.value(0).toString();
+    return {};
+}
+
+QString DatabaseManager::mostRecentMacForIdentity(const QString &networkId, const QString &identityId) {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT mac FROM device_identity_macs WHERE network_id = :nid AND identity_id = :id "
+              "ORDER BY last_seen DESC LIMIT 1");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":id", identityId);
+    if (q.exec() && q.next()) return q.value(0).toString();
+    return {};
+}
+
+void DatabaseManager::createIdentity(const QString &networkId, const QString &identityId, const QString &fingerprint,
+                                      const QString &hostname, const QString &clientId) {
+    QSqlQuery q(m_db);
+    QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+    q.prepare("INSERT OR REPLACE INTO device_identities "
+              "(identity_id, network_id, fingerprint, hostname, client_id, first_seen, last_seen) "
+              "VALUES (:id, :nid, :fp, :hn, :cid, :fs, :ls)");
+    q.bindValue(":id", identityId);
+    q.bindValue(":nid", networkId);
+    q.bindValue(":fp", fingerprint);
+    q.bindValue(":hn", hostname.toLower());
+    q.bindValue(":cid", clientId);
+    q.bindValue(":fs", now);
+    q.bindValue(":ls", now);
+    q.exec();
+}
+
+void DatabaseManager::linkMacToIdentity(const QString &networkId, const QString &identityId, const QString &mac) {
+    QSqlQuery q(m_db);
+    q.prepare("INSERT OR REPLACE INTO device_identity_macs (network_id, identity_id, mac, last_seen) "
+              "VALUES (:nid, :id, :mac, :ls)");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":id", identityId);
+    q.bindValue(":mac", mac.toLower());
+    q.bindValue(":ls", QDateTime::currentDateTime().toString(Qt::ISODate));
+    q.exec();
+
+    // Keep the identity's own last_seen fresh too
+    QSqlQuery q2(m_db);
+    q2.prepare("UPDATE device_identities SET last_seen = :ls WHERE network_id = :nid AND identity_id = :id");
+    q2.bindValue(":ls", QDateTime::currentDateTime().toString(Qt::ISODate));
+    q2.bindValue(":nid", networkId);
+    q2.bindValue(":id", identityId);
+    q2.exec();
 }
 
 // ── Bandwidth history DAO ─────────────────────────────────────────────────────

@@ -24,6 +24,7 @@
 #include "Types.h"
 #include "RouterDetector.h"
 #include "VulnerabilityScanner.h"
+#include "DeviceIdentityEngine.h"
 #include "BandwidthEngine.h"
 
 // Forward-declare pcap types to avoid pulling pcap.h into every TU
@@ -139,6 +140,7 @@ signals:
     void deviceUnblocked(const QString &mac);
     void blockActionFailed(const QString &reason);
     void blockedDevicesReady(const QVariantList &entries);
+    void strictModeChanged(bool enabled);
 
     // Vulnerability scanning
     void vulnScanProgress(const QString &ip, int percent, const QString &stage);
@@ -155,6 +157,8 @@ public slots:
     void requestBlockedDevices();
     void triggerVulnScan(const QString &ip, const QString &mac = QString(), const QString &hostname = QString());
     void triggerVulnScanAll();
+    void setStrictMode(bool enabled);
+    bool isStrictModeEnabled() const { return m_strictMode; }
 
 private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
@@ -194,6 +198,9 @@ private:
     QMutex m_resultsMutex;
     QMap<QString, Device> m_allDevices;
 
+    void applyBlockEnforcement(const QString &mac, const QString &reason);
+    void enforceStrictModeBlock(const QString &mac);
+
     // Sub-components
     PacketCapture *m_packetCapturer = nullptr;
     TrafficMonitor *m_trafficMonitor = nullptr;
@@ -206,6 +213,8 @@ private:
 
     VulnerabilityScanner *m_vulnScanner   = nullptr;
     QThread              *m_vulnThread    = nullptr;
+
+    DeviceIdentityEngine *m_identityEngine = nullptr;
 
     BandwidthEngine      *m_bwEngine      = nullptr;
 

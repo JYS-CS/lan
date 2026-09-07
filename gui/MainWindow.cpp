@@ -19,6 +19,7 @@
 #include "RouterPage.h"
 #include "BlockedDevicesPage.h"
 #include "VulnerabilityPage.h"
+#include "AppSettings.h"
 #include "Theme.h"
 #include <QButtonGroup>
 #include <QFrame>
@@ -44,6 +45,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Wire up signals between Core and GUI
     connect(&m_networkThread, &QThread::finished, m_networkManager, &QObject::deleteLater);
     connect(m_networkManager, &core::NetworkManager::devicesUpdated, m_monitorPage, &DeviceMonitorPage::updateDevices);
+
+    // Strict mode (default-deny for new devices) is a persisted app setting;
+    // push its value into NetworkManager on startup and whenever it changes.
+    QMetaObject::invokeMethod(m_networkManager, [this]() {
+        m_networkManager->setStrictMode(AppSettings::instance()->blockNewDevicesByDefault());
+    }, Qt::QueuedConnection);
+    connect(AppSettings::instance(), &AppSettings::settingsChanged, this, [this]() {
+        bool enabled = AppSettings::instance()->blockNewDevicesByDefault();
+        QMetaObject::invokeMethod(m_networkManager, [this, enabled]() {
+            m_networkManager->setStrictMode(enabled);
+        }, Qt::QueuedConnection);
+    });
     connect(m_networkManager, &core::NetworkManager::scanError, this, &MainWindow::handleScanError);
     connect(m_networkManager, &core::NetworkManager::statusMessage, this, &MainWindow::updateStatusBar);
     connect(m_networkManager, &core::NetworkManager::globalTrafficStatus, this, &MainWindow::updateStatusBar);

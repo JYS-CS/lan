@@ -51,6 +51,14 @@ public:
     void removeFromWhitelist(const QString &networkId, const QString &mac);
     bool isWhitelisted(const QString &networkId, const QString &mac);
 
+    // Device identity correlation (see DeviceIdentityEngine)
+    QString findIdentityByFingerprint(const QString &networkId, const QString &fingerprint, const QString &hostname);
+    QString findIdentityByClientId(const QString &networkId, const QString &clientId);
+    QString mostRecentMacForIdentity(const QString &networkId, const QString &identityId);
+    void createIdentity(const QString &networkId, const QString &identityId, const QString &fingerprint,
+                         const QString &hostname, const QString &clientId);
+    void linkMacToIdentity(const QString &networkId, const QString &identityId, const QString &mac);
+
     // ── Bandwidth history ─────────────────────────────────────────────────
     // Insert one raw 5-second sample.
     void insertBwSample(const BwSample &sample);

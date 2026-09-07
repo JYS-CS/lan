@@ -90,6 +90,19 @@ SettingsPage::SettingsPage(QWidget *parent) : QWidget(parent) {
     swAutoClear->setChecked(cfg->autoClearHistoricalDevices());
     connect(swAutoClear, &ToggleSwitch::toggled, cfg, &AppSettings::setAutoClearHistoricalDevices);
 
+    cv->addWidget(makeSection("SECURITY"));
+
+    ToggleSwitch *swStrictMode = nullptr;
+    cv->addWidget(makeRow(
+        "Block New Devices By Default",
+        "When a device is not on the whitelist, block it automatically the moment it's seen "
+        "instead of allowing it by default. Requires the DHCP Server running in Gateway "
+        "(Intercept) mode to actually take effect.",
+        &swStrictMode
+    ));
+    swStrictMode->setChecked(cfg->blockNewDevicesByDefault());
+    connect(swStrictMode, &ToggleSwitch::toggled, cfg, &AppSettings::setBlockNewDevicesByDefault);
+
     cv->addStretch();
 }
 

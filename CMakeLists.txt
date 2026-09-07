@@ -64,6 +64,8 @@ add_executable(LANMonitor
     core/MacVendorManager.h
     core/RouterDetector.h
     core/RouterDetector.cpp
+    core/DeviceIdentityEngine.h
+    core/DeviceIdentityEngine.cpp
     core/VulnerabilityScanner.h
     core/VulnerabilityScanner.cpp
     resources.qrc

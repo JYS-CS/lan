@@ -379,6 +379,12 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
 
     connect(m_dhcpManager, &DHCPManager::leaseDiscovered, this, [this](const core::DHCPLease &lease) {
         if (lease.hostname == "(pending)") return; // skip tentative offers; wait for ACK
+
+        if (m_identityEngine && !m_gatewayMac.isEmpty()) {
+            m_identityEngine->observe(m_gatewayMac, lease.mac, lease.hostname,
+                                       lease.vendorClass, lease.clientId, lease.paramRequestList);
+        }
+
         Device d;
         d.setIp(lease.ip);
         d.setMac(lease.mac);
@@ -492,6 +498,27 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
     connect(m_vulnScanner, &VulnerabilityScanner::allFinished,
             this, &NetworkManager::vulnScanAllFinished, Qt::QueuedConnection);
     m_vulnThread->start();
+
+    // Device Identity Engine — no blocking I/O, safe to live on this
+    // thread directly (unlike RouterDetector/VulnerabilityScanner/DHCP,
+    // which need dedicated threads for socket timeouts).
+    m_identityEngine = new DeviceIdentityEngine(this);
+    connect(m_identityEngine, &DeviceIdentityEngine::possibleMacRotation, this,
+            [this](const QString &networkId, const QString &previousMac, const QString &newMac,
+                   const QString &identityId, const QString &reason) {
+        Q_UNUSED(identityId);
+        if (networkId != m_gatewayMac) return; // stale correlation from a different network
+        logEvent(core::NetworkEvent::Security,
+            QString("Possible MAC rotation: %1 -> %2 (%3)").arg(previousMac, newMac, reason));
+
+        // If the previous MAC was blocked, extend the block to the new one
+        // too — this is the actual point of tracking identity: a device
+        // shouldn't regain access just by rotating its MAC.
+        if (DatabaseManager::instance().isBlacklisted(networkId, previousMac)) {
+            applyBlockEnforcement(newMac,
+                QString("Auto-blocked — matched identity of previously blocked device (%1)").arg(reason));
+        }
+    });
 
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
@@ -792,6 +819,16 @@ void NetworkManager::setGatewayModeActive(bool active) {
     emit gatewayModeChanged(active);
 }
 
+void NetworkManager::applyBlockEnforcement(const QString &mac, const QString &reason) {
+    QString lMac = mac.toLower();
+    DatabaseManager::instance().addToBlacklist(m_gatewayMac, lMac, reason);
+    if (m_firewallManager) m_firewallManager->blockMAC(lMac);
+    if (m_dhcpManager)     m_dhcpManager->blockMAC(lMac);
+
+    logEvent(core::NetworkEvent::Security, QString("Device blocked: %1 (%2)").arg(lMac, reason));
+    emit deviceBlocked(lMac);
+}
+
 void NetworkManager::blockDevice(const QString &mac, const QString &reason) {
     if (mac.isEmpty()) return;
 
@@ -813,13 +850,34 @@ void NetworkManager::blockDevice(const QString &mac, const QString &reason) {
         return;
     }
 
-    QString lMac = mac.toLower();
-    DatabaseManager::instance().addToBlacklist(m_gatewayMac, lMac, reason);
-    if (m_firewallManager) m_firewallManager->blockMAC(lMac);
-    if (m_dhcpManager)     m_dhcpManager->blockMAC(lMac);
+    applyBlockEnforcement(mac, reason);
+}
 
-    logEvent(core::NetworkEvent::Security, QString("Device blocked: %1 (%2)").arg(lMac, reason));
-    emit deviceBlocked(lMac);
+void NetworkManager::setStrictMode(bool enabled) {
+    if (m_strictMode == enabled) return;
+    m_strictMode = enabled;
+    emit strictModeChanged(enabled);
+    logEvent(core::NetworkEvent::Info,
+        enabled ? "Default-deny policy enabled — new devices will be auto-blocked until whitelisted"
+                : "Default-deny policy disabled");
+}
+
+// Called wherever a device is discovered/re-classified as "should be
+// blocked" purely due to strict mode (i.e. not explicitly blacklisted,
+// just unrecognized while default-deny is on). Unlike blockDevice(),
+// this never surfaces a failure dialog — if gateway mode isn't active,
+// it silently does nothing (matching the same policy: blocking only
+// works while this machine is actually in the traffic path), so a scan
+// running with strict mode on but the DHCP server off doesn't spam
+// warnings for every device it sees.
+void NetworkManager::enforceStrictModeBlock(const QString &mac) {
+    if (!m_strictMode || !m_gatewayModeActive || mac.isEmpty()) return;
+    QString lMac = mac.toLower();
+    if (!m_myMac.isEmpty() && lMac == m_myMac.toLower()) return;
+    if (DatabaseManager::instance().isBlacklisted(m_gatewayMac, lMac)) return; // already tracked
+    if (DatabaseManager::instance().isWhitelisted(m_gatewayMac, lMac)) return;
+
+    applyBlockEnforcement(lMac, "Auto-blocked — new device (default-deny policy)");
 }
 
 
@@ -1115,6 +1173,7 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
         if (d.status().toLower() == "offline") {
             bool blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
             d.setStatus(blocked ? "Blocked" : "Online");
+            enforceStrictModeBlock(mac);
         }
         
         // Capture gateway MAC for identification
@@ -1134,6 +1193,7 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
             }
             bool blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
             d.setStatus(blocked ? "Blocked" : "Online");
+            enforceStrictModeBlock(mac);
             m_allDevices.insert(ip, d);
             DatabaseManager::instance().saveDevice(d);
             if (!moved) {
@@ -1275,6 +1335,7 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
     bool isBlocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, dev.mac())
                   || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, dev.mac()));
     QString properStatus = isBlocked ? "Blocked" : (fromDhcp ? "Online" : dev.status());
+    enforceStrictModeBlock(dev.mac());
 
     Device existingDev;
     bool moved = false;

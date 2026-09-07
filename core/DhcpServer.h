@@ -140,6 +140,16 @@ private:
     void sendRawDhcpReply(const uint8_t *dstMac, uint32_t dstIp,
                           uint8_t *dhcpPayload, size_t dhcpLen);
 
+    // ARP enforcement — see poisonBlockedArpEntries() for why this exists.
+    void sendArpReply(const uint8_t *targetMac, uint32_t targetIp, uint32_t spoofedIp);
+    void poisonBlockedArpEntries();
+    int  m_arpPoisonTick = 0;
+
+    // Captures option 60 (vendor class), 61 (client identifier), and 55
+    // (parameter request list) into a lease record, for device-identity
+    // correlation across MAC changes (see DeviceIdentityEngine).
+    void captureFingerprint(uint8_t *reqOpts, ssize_t optsLen, DHCPLease &lease);
+
 
     // Helpers
     QString   macToString(const uint8_t *mac);

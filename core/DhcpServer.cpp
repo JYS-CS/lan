@@ -210,6 +210,19 @@ void DhcpServer::run() {
         int ret = poll(&pfd, 1, 500);
         if (ret < 0) break;   // socket closed
         if (ret == 0) {       // poll timeout (500ms tick)
+            // Every ~2s, re-assert a fake ARP mapping for the real gateway
+            // toward every blocked device. This matters because a device
+            // doesn't have to talk to *our* DHCP server at all to keep
+            // using its current network config — many phones, on a simple
+            // Wi-Fi toggle, just resume with their cached gateway IP via
+            // ARP and never renegotiate DHCP. Without this, "blocking" a
+            // device that already has a valid lease from before it was
+            // blocked (or that skips DHCP on reconnect) would silently do
+            // nothing until its lease naturally expired.
+            if (++m_arpPoisonTick >= 4) {
+                m_arpPoisonTick = 0;
+                poisonBlockedArpEntries();
+            }
             continue;
         }
         if (!(pfd.revents & POLLIN)) continue;
@@ -777,6 +790,7 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
                 lease.hostname = hnLen > 0
                                  ? QString::fromUtf8(reinterpret_cast<char*>(hostnameBytes), hnLen)
                                  : QStringLiteral("Unknown");
+                captureFingerprint(reqOpts, optsLen, lease);
 
                 {
                     QMutexLocker lk2(&m_leaseMutex);
@@ -876,6 +890,7 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     lease.hostname = hnLen > 0
                      ? QString::fromUtf8(reinterpret_cast<char*>(hostnameBytes), hnLen)
                      : QStringLiteral("Unknown");
+    captureFingerprint(reqOpts, optsLen, lease);
     m_leases[clientMac] = lease;
     
     // Notify NetworkManager of the active lease and hostname
@@ -1065,8 +1080,96 @@ void DhcpServer::sendRawDhcpReply(const uint8_t *dstMac, uint32_t dstIp,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helpers
+//  ARP enforcement for blocked devices
+//
+//  Sends a unicast (never broadcast — this must never touch other devices'
+//  ARP tables) ARP reply directly to a blocked device, claiming that the
+//  real gateway's IP belongs to *our* MAC. Combined with the existing
+//  nftables Layer-2 drop rule for blocked MACs, this means:
+//    - Transparent mode: the device's traffic gets redirected to arrive at
+//      our interface instead of the real router, where it's simply not
+//      forwarded (we don't run NAT/ip_forward in transparent mode).
+//    - Intercept mode: this is a no-op reinforcement, since routerIp is
+//      already our own IP for every client in that mode — the actual
+//      enforcement there is the forward-chain drop rule.
+//  This is what makes blocking survive a device skipping DHCP entirely
+//  (e.g. a simple Wi-Fi toggle that just resumes the cached lease).
 // ─────────────────────────────────────────────────────────────────────────────
+void DhcpServer::sendArpReply(const uint8_t *targetMac, uint32_t targetIp, uint32_t spoofedIp) {
+    // Ethernet(14) + ARP(28)
+    uint8_t frame[42];
+    memset(frame, 0, sizeof(frame));
+
+    auto *eth = reinterpret_cast<EthHeader*>(frame);
+    memcpy(eth->dst, targetMac,   6);
+    memcpy(eth->src, m_serverMac, 6);
+    eth->ethertype = htons(0x0806); // ARP
+
+    uint8_t *arp = frame + 14;
+    arp[0] = 0x00; arp[1] = 0x01;       // Hardware type: Ethernet
+    arp[2] = 0x08; arp[3] = 0x00;       // Protocol type: IPv4
+    arp[4] = 6;                          // Hardware size
+    arp[5] = 4;                          // Protocol size
+    arp[6] = 0x00; arp[7] = 0x02;       // Opcode: reply
+
+    memcpy(arp + 8,  m_serverMac, 6);   // Sender MAC = us
+    uint32_t spoofedIpNet = htonl(spoofedIp);
+    memcpy(arp + 14, &spoofedIpNet, 4); // Sender IP  = the gateway IP we're claiming
+    memcpy(arp + 18, targetMac, 6);     // Target MAC = the blocked device
+    uint32_t targetIpNet = htonl(targetIp);
+    memcpy(arp + 24, &targetIpNet, 4);  // Target IP  = the blocked device's own IP
+
+    struct sockaddr_ll dest{};
+    dest.sll_family   = AF_PACKET;
+    dest.sll_protocol = htons(0x0806);
+    dest.sll_ifindex  = m_ifIndex;
+    dest.sll_halen    = 6;
+    memcpy(dest.sll_addr, targetMac, 6);
+
+    sendto(m_txSocket, frame, sizeof(frame), 0,
+           reinterpret_cast<struct sockaddr*>(&dest), sizeof(dest));
+}
+
+void DhcpServer::poisonBlockedArpEntries() {
+    uint32_t gatewayIp = ntohl(QHostAddress(m_config.routerIp).toIPv4Address());
+    if (gatewayIp == 0) return;
+
+    QMutexLocker lk(&m_leaseMutex);
+    for (auto it = m_blockedMACs.constBegin(); it != m_blockedMACs.constEnd(); ++it) {
+        auto leaseIt = m_leases.constFind(*it);
+        if (leaseIt == m_leases.constEnd()) continue; // no known IP for this MAC yet
+
+        uint32_t clientIp = ntohl(QHostAddress(leaseIt.value().ip).toIPv4Address());
+        if (clientIp == 0) continue;
+
+        uint8_t macBytes[6];
+        QStringList parts = it->split(':');
+        if (parts.size() != 6) continue;
+        for (int i = 0; i < 6; ++i) macBytes[i] = (uint8_t)parts[i].toUInt(nullptr, 16);
+
+        sendArpReply(macBytes, clientIp, gatewayIp);
+    }
+}
+
+void DhcpServer::captureFingerprint(uint8_t *reqOpts, ssize_t optsLen, DHCPLease &lease) {
+    uint8_t vendorBytes[64]{};
+    uint8_t vLen = getOption(reqOpts, optsLen, 60, vendorBytes, sizeof(vendorBytes) - 1);
+    if (vLen > 0) lease.vendorClass = QString::fromUtf8(reinterpret_cast<char*>(vendorBytes), vLen);
+
+    uint8_t clientIdBytes[32]{};
+    uint8_t cLen = getOption(reqOpts, optsLen, 61, clientIdBytes, sizeof(clientIdBytes) - 1);
+    if (cLen > 0) lease.clientId = QByteArray(reinterpret_cast<char*>(clientIdBytes), cLen).toHex(':');
+
+    uint8_t paramBytes[64]{};
+    uint8_t pLen = getOption(reqOpts, optsLen, 55, paramBytes, sizeof(paramBytes) - 1);
+    if (pLen > 0) {
+        QStringList opts;
+        for (int i = 0; i < pLen; ++i) opts << QString::number(paramBytes[i]);
+        lease.paramRequestList = opts.join(',');
+    }
+}
+
+
 
 /**
  * Allocate or return an existing (non-expired) lease IP for @p mac.

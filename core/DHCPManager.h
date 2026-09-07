@@ -18,6 +18,16 @@ struct DHCPLease {
     QString mac;
     QString hostname;
     QDateTime expiry;
+
+    // Additional DHCP fingerprint fields, captured for device-identity
+    // correlation (see DeviceIdentityEngine). None of these are unique
+    // per physical device on their own — vendorClass + paramRequestList
+    // fingerprint the OS/device *model* (two identical phones look
+    // identical), and clientId is often just the MAC re-encoded. They're
+    // only useful combined with hostname as a best-effort heuristic.
+    QString vendorClass;      // option 60, e.g. "android-dhcp-14", "MSFT 5.0"
+    QString clientId;         // option 61, hex-encoded, if present
+    QString paramRequestList; // option 55, comma-separated option numbers as requested (order matters)
 };
 
 struct DHCPServerConfig {

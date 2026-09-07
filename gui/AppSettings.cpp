@@ -14,6 +14,7 @@ AppSettings::AppSettings(QObject *parent)
     m_showUpload     = m_qs.value("showUpload",     true).toBool();
     m_showDownload   = m_qs.value("showDownload",   true).toBool();
     m_autoClear      = m_qs.value("autoClearHistoricalDevices", false).toBool();
+    m_blockNewDevices = m_qs.value("blockNewDevicesByDefault", false).toBool();
 }
 
 void AppSettings::setShowSparklines(bool v) {
@@ -41,6 +42,13 @@ void AppSettings::setAutoClearHistoricalDevices(bool v) {
     if (m_autoClear == v) return;
     m_autoClear = v;
     m_qs.setValue("autoClearHistoricalDevices", v);
+    emit settingsChanged();
+}
+
+void AppSettings::setBlockNewDevicesByDefault(bool v) {
+    if (m_blockNewDevices == v) return;
+    m_blockNewDevices = v;
+    m_qs.setValue("blockNewDevicesByDefault", v);
     emit settingsChanged();
 }
 

@@ -520,6 +520,15 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         }
     });
 
+    // Threat Intelligence — no blocking I/O (async QNetworkAccessManager),
+    // safe to live on this thread directly.
+    m_threatIntel = new ThreatIntelManager(this);
+    connect(m_threatIntel, &ThreatIntelManager::blocklistUpdated, this, [this](const QStringList &entries) {
+        if (m_firewallManager) m_firewallManager->updateThreatBlocklist(entries);
+    });
+    connect(m_threatIntel, &ThreatIntelManager::statusChanged, this, &NetworkManager::threatBlocklistStatusChanged);
+    connect(m_threatIntel, &ThreatIntelManager::refreshFailed, this, &NetworkManager::threatBlocklistRefreshFailed);
+
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
     // This prevents any scan/firewall activity while the wizard is open.
@@ -951,6 +960,27 @@ void NetworkManager::triggerVulnScanAll() {
     }
     QMetaObject::invokeMethod(m_vulnScanner, "scanMany", Qt::QueuedConnection,
                                Q_ARG(QList<QStringList>, devices));
+}
+
+void NetworkManager::setThreatBlocklistEnabled(bool enabled) {
+    if (m_firewallManager) m_firewallManager->setThreatBlocklistEnabled(enabled);
+    if (m_threatIntel)     m_threatIntel->setEnabled(enabled);
+}
+
+bool NetworkManager::isThreatBlocklistEnabled() const {
+    return m_threatIntel && m_threatIntel->isEnabled();
+}
+
+void NetworkManager::refreshThreatBlocklistNow() {
+    if (m_threatIntel) m_threatIntel->refreshNow();
+}
+
+int NetworkManager::threatBlocklistEntryCount() const {
+    return m_threatIntel ? m_threatIntel->entryCount() : 0;
+}
+
+QDateTime NetworkManager::threatBlocklistLastUpdated() const {
+    return m_threatIntel ? m_threatIntel->lastUpdated() : QDateTime();
 }
 
 

@@ -66,6 +66,8 @@ add_executable(LANMonitor
     core/RouterDetector.cpp
     core/DeviceIdentityEngine.h
     core/DeviceIdentityEngine.cpp
+    core/ThreatIntelManager.h
+    core/ThreatIntelManager.cpp
     core/VulnerabilityScanner.h
     core/VulnerabilityScanner.cpp
     resources.qrc

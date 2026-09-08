@@ -1,6 +1,7 @@
 #pragma once
 #include <QWidget>
 #include "ToggleSwitch.h"
+#include "../core/NetworkManager.h"
 
 class QLabel;
 class QVBoxLayout;
@@ -11,12 +12,17 @@ namespace gui {
 class SettingsPage : public QWidget {
     Q_OBJECT
 public:
-    explicit SettingsPage(QWidget *parent = nullptr);
+    explicit SettingsPage(core::NetworkManager *nm = nullptr, QWidget *parent = nullptr);
 
+private slots:
+    void refreshThreatStatus();
 
 private:
     QWidget* makeSection(const QString &title);
     QWidget* makeRow(const QString &label, const QString &desc, ToggleSwitch **sw);
+
+    core::NetworkManager *m_nm = nullptr;
+    QLabel *m_threatStatusLabel = nullptr;
 };
 
 } // namespace gui

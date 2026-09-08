@@ -177,7 +177,7 @@ void MainWindow::setupUI() {
     m_centralStacked->addWidget(m_routerPage);
 
     // Page 6: Settings Page
-    m_settingsPage = new SettingsPage(this);
+    m_settingsPage = new SettingsPage(m_networkManager, this);
     m_centralStacked->addWidget(m_settingsPage);
 
     // Page 7: Blocked Devices Page

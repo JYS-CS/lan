@@ -25,6 +25,7 @@
 #include "RouterDetector.h"
 #include "VulnerabilityScanner.h"
 #include "DeviceIdentityEngine.h"
+#include "ThreatIntelManager.h"
 #include "BandwidthEngine.h"
 
 // Forward-declare pcap types to avoid pulling pcap.h into every TU
@@ -141,6 +142,8 @@ signals:
     void blockActionFailed(const QString &reason);
     void blockedDevicesReady(const QVariantList &entries);
     void strictModeChanged(bool enabled);
+    void threatBlocklistStatusChanged();
+    void threatBlocklistRefreshFailed(const QString &error);
 
     // Vulnerability scanning
     void vulnScanProgress(const QString &ip, int percent, const QString &stage);
@@ -159,6 +162,11 @@ public slots:
     void triggerVulnScanAll();
     void setStrictMode(bool enabled);
     bool isStrictModeEnabled() const { return m_strictMode; }
+    void setThreatBlocklistEnabled(bool enabled);
+    bool isThreatBlocklistEnabled() const;
+    void refreshThreatBlocklistNow();
+    int threatBlocklistEntryCount() const;
+    QDateTime threatBlocklistLastUpdated() const;
 
 private slots:
     void onTrafficUpdated(const QMap<QString, core::TrafficStats> &stats);
@@ -215,6 +223,7 @@ private:
     QThread              *m_vulnThread    = nullptr;
 
     DeviceIdentityEngine *m_identityEngine = nullptr;
+    ThreatIntelManager   *m_threatIntel    = nullptr;
 
     BandwidthEngine      *m_bwEngine      = nullptr;
 

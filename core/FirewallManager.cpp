@@ -1,6 +1,7 @@
 #include "FirewallManager.h"
 #include <QProcess>
 #include <QDebug>
+#include <QTemporaryFile>
 
 namespace core {
 
@@ -60,6 +61,7 @@ void FirewallManager::initFirewall() {
     runNft({"add", "set", "inet", m_tableName, "allowed_leases", "{ type ipv4_addr . ether_addr; }"});
     runNft({"add", "set", "inet", m_tableName, "whitelist", "{ type ether_addr; }"});
     runNft({"add", "set", "inet", m_tableName, "blocked_macs", "{ type ether_addr; }"});
+    runNft({"add", "set", "inet", m_tableName, "malicious_ips", "{ type ipv4_addr; flags interval; }"});
 
     if (!m_interface.isEmpty()) {
         runNft({"add", "set", "netdev", m_tableName + "_layer2", "blocked_macs", "{ type ether_addr; }"});
@@ -73,6 +75,7 @@ void FirewallManager::initFirewall() {
     runNft({"add", "rule", "inet", m_tableName, "filter_input",   "ether", "saddr", "@whitelist", "accept"});
     runNft({"add", "rule", "inet", m_tableName, "filter_forward", "ether", "saddr", "@whitelist", "accept"});
     runNft({"add", "rule", "inet", m_tableName, "filter_output",  "ether", "daddr", "@whitelist", "accept"});
+    addThreatBlocklistRule();
 
     // Restore persisted state
     syncWhitelistedMACs();
@@ -170,6 +173,34 @@ bool FirewallManager::runNft(const QStringList &args) {
     return (exitCode == 0);
 }
 
+// Loads a multi-statement nft script from a temp file via `nft -f`.
+// Needed for bulk set population (e.g. a 180k+-entry threat blocklist) —
+// passing that many elements as command-line args would blow past
+// ARG_MAX, and individual `nft add element` calls per entry would be far
+// too slow.
+bool FirewallManager::runNftScript(const QString &script, int timeoutMs) {
+    QTemporaryFile tmp;
+    tmp.setAutoRemove(true);
+    if (!tmp.open()) return false;
+    tmp.write(script.toUtf8());
+    tmp.flush();
+    QString path = tmp.fileName();
+    tmp.close();
+
+    QProcess proc;
+    proc.start("nft", {"-f", path});
+    if (!proc.waitForFinished(timeoutMs)) {
+        proc.kill();
+        qDebug() << "[Firewall ERROR] nft -f timed out after" << timeoutMs << "ms";
+        return false;
+    }
+    int exitCode = proc.exitCode();
+    if (exitCode != 0) {
+        qDebug() << "[Firewall ERROR] nft -f failed:" << proc.readAllStandardError().trimmed();
+    }
+    return exitCode == 0;
+}
+
 bool FirewallManager::runCommand(const QString &cmd) {
     QProcess proc;
     proc.start("sh", QStringList() << "-c" << cmd + " 2>&1");
@@ -213,6 +244,50 @@ bool FirewallManager::removeWhitelistedMAC(const QString &mac) {
     return true;
 }
 
+void FirewallManager::addThreatBlocklistRule() {
+    runNft({"add", "rule", "inet", m_tableName, "filter_forward", "ip", "daddr", "@malicious_ips",
+            "log", "prefix", "\"LAN-Monitor-ThreatBlock: \"", "drop"});
+}
+
+void FirewallManager::setThreatBlocklistEnabled(bool enabled) {
+    m_threatBlocklistEnabled = enabled;
+    if (!enabled) {
+        runNft({"flush", "set", "inet", m_tableName, "malicious_ips"});
+        m_threatBlocklistSize = 0;
+    }
+    // Enabling alone doesn't populate anything — ThreatIntelManager calls
+    // updateThreatBlocklist() once it has actually fetched the list.
+}
+
+void FirewallManager::updateThreatBlocklist(const QStringList &entries) {
+    if (!m_available) return;
+    if (!m_threatBlocklistEnabled) return;
+
+    runNft({"flush", "set", "inet", m_tableName, "malicious_ips"});
+    if (entries.isEmpty()) {
+        m_threatBlocklistSize = 0;
+        return;
+    }
+
+    // Load in batches within one script file — both to stay well clear of
+    // ARG_MAX (this list can have 100k+ entries) and because nft parses a
+    // script file far faster than hundreds of separate process launches.
+    const int batchSize = 5000;
+    QString script;
+    for (int i = 0; i < entries.size(); i += batchSize) {
+        QStringList batch = entries.mid(i, batchSize);
+        script += QString("add element inet %1 malicious_ips { %2 }\n")
+                      .arg(m_tableName, batch.join(", "));
+    }
+
+    if (runNftScript(script)) {
+        m_threatBlocklistSize = entries.size();
+        emit actionSuccess(QString("Threat blocklist updated: %1 entries").arg(entries.size()));
+    } else {
+        emit firewallError("Failed to load threat blocklist into firewall (see logs).");
+    }
+}
+
 bool FirewallManager::setStrictMode(bool enable) {
     if (!m_available) return false;
     if (enable) {
@@ -220,6 +295,7 @@ bool FirewallManager::setStrictMode(bool enable) {
         
         // 1. ALWAYS inject the global blocked_macs drop first so manual blocks override whitelists
         runNft({"add", "rule", "inet", m_tableName, "filter_forward", "ether", "saddr", "@blocked_macs", "drop"});
+        addThreatBlocklistRule();
 
         // Use a single string for the concat-match to ensure nft parses it correctly
         runNft({"add", "rule", "inet", m_tableName, "filter_forward", "ip saddr . ether saddr @allowed_leases", "accept"});
@@ -232,6 +308,7 @@ bool FirewallManager::setStrictMode(bool enable) {
         
         // Restore standard blocked MACs drop for regular Gateway mode
         runNft({"add", "rule", "inet", m_tableName, "filter_forward", "ether", "saddr", "@blocked_macs", "drop"});
+        addThreatBlocklistRule();
     }
     return true;
 }

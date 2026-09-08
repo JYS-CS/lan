@@ -9,7 +9,7 @@
 
 namespace gui {
 
-SettingsPage::SettingsPage(QWidget *parent) : QWidget(parent) {
+SettingsPage::SettingsPage(core::NetworkManager *nm, QWidget *parent) : QWidget(parent), m_nm(nm) {
     setStyleSheet(
         "gui--SettingsPage { background: #0a0d12; }"
         "QWidget { background: #0a0d12; }"
@@ -103,7 +103,62 @@ SettingsPage::SettingsPage(QWidget *parent) : QWidget(parent) {
     swStrictMode->setChecked(cfg->blockNewDevicesByDefault());
     connect(swStrictMode, &ToggleSwitch::toggled, cfg, &AppSettings::setBlockNewDevicesByDefault);
 
+    ToggleSwitch *swThreatIntel = nullptr;
+    cv->addWidget(makeRow(
+        "Block Known-Malicious Destinations",
+        "Automatically block outbound connections to known malware/phishing/C2 IPs, using a "
+        "regularly-updated threat list (bitwire-it/ipblocklist). Requires the DHCP Server "
+        "running in Gateway (Intercept) mode.",
+        &swThreatIntel
+    ));
+    if (m_nm) {
+        swThreatIntel->setChecked(m_nm->isThreatBlocklistEnabled());
+        connect(swThreatIntel, &ToggleSwitch::toggled, this, [this](bool on) {
+            QMetaObject::invokeMethod(m_nm, [this, on]() { m_nm->setThreatBlocklistEnabled(on); }, Qt::QueuedConnection);
+        });
+        connect(m_nm, &core::NetworkManager::threatBlocklistStatusChanged, this, &SettingsPage::refreshThreatStatus);
+        connect(m_nm, &core::NetworkManager::threatBlocklistRefreshFailed, this, [this](const QString &err) {
+            m_threatStatusLabel->setText("Update failed: " + err);
+            m_threatStatusLabel->setStyleSheet("color: #ff5c5c; font-size: 11px; font-family: 'Inter';");
+        });
+    } else {
+        swThreatIntel->setEnabled(false);
+    }
+
+    m_threatStatusLabel = new QLabel(this);
+    m_threatStatusLabel->setStyleSheet("color: #7c8798; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
+    cv->addWidget(m_threatStatusLabel);
+    refreshThreatStatus();
+
+    QPushButton *refreshThreatBtn = new QPushButton("Update Blocklist Now", this);
+    refreshThreatBtn->setStyleSheet(
+        "QPushButton { background: #0f141b; border: 1px solid #1c232c; color: #dbe4ee; "
+        "border-radius: 7px; padding: 8px 16px; font-size: 12px; }"
+        "QPushButton:hover { border: 1px solid rgba(94,234,212,0.4); }");
+    refreshThreatBtn->setCursor(Qt::PointingHandCursor);
+    connect(refreshThreatBtn, &QPushButton::clicked, this, [this]() {
+        if (!m_nm) return;
+        QMetaObject::invokeMethod(m_nm, [this]() { m_nm->refreshThreatBlocklistNow(); }, Qt::QueuedConnection);
+    });
+    cv->addWidget(refreshThreatBtn, 0, Qt::AlignLeft);
+
     cv->addStretch();
+}
+
+void SettingsPage::refreshThreatStatus() {
+    if (!m_nm || !m_threatStatusLabel) return;
+    if (!m_nm->isThreatBlocklistEnabled()) {
+        m_threatStatusLabel->setText("Disabled");
+        m_threatStatusLabel->setStyleSheet("color: #4d5666; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
+        return;
+    }
+    int count = m_nm->threatBlocklistEntryCount();
+    QDateTime updated = m_nm->threatBlocklistLastUpdated();
+    QString text = count > 0
+        ? QString("%1 entries loaded — last updated %2").arg(count).arg(updated.toString("hh:mm:ss"))
+        : "Enabled — fetching blocklist…";
+    m_threatStatusLabel->setText(text);
+    m_threatStatusLabel->setStyleSheet("color: #34e4a0; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
 }
 
 QWidget* SettingsPage::makeSection(const QString &title) {

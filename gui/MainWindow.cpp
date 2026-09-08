@@ -19,6 +19,7 @@
 #include "RouterPage.h"
 #include "BlockedDevicesPage.h"
 #include "VulnerabilityPage.h"
+#include "TopologyPage.h"
 #include "AppSettings.h"
 #include "Theme.h"
 #include <QButtonGroup>
@@ -191,6 +192,10 @@ void MainWindow::setupUI() {
     m_bandwidthPage = new BandwidthPage(m_networkManager, this);
     m_centralStacked->addWidget(m_bandwidthPage);
 
+    // Page 10: Network Topology Page
+    m_topologyPage = new TopologyPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_topologyPage);
+
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
     setCentralWidget(m_centralStacked);
@@ -321,6 +326,10 @@ void MainWindow::setupToolBar() {
 
     // 4c. VULNERABILITY SCANNER button
     hLayout->addWidget(createNavBtn("Vulnerabilities", ":/resources/warning.svg", 8));
+    hLayout->addWidget(createDivider());
+
+    // 4d. TOPOLOGY button
+    hLayout->addWidget(createNavBtn("Topology", ":/resources/subnet.svg", 10));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

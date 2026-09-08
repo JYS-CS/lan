@@ -18,6 +18,7 @@
 #include "SettingsPage.h"
 #include "BlockedDevicesPage.h"
 #include "VulnerabilityPage.h"
+#include "TopologyPage.h"
 #include "BandwidthPage.h"
 
 namespace gui { 
@@ -65,6 +66,7 @@ private:
     SettingsPage *m_settingsPage = nullptr;
     BlockedDevicesPage *m_blockedDevicesPage = nullptr;
     VulnerabilityPage *m_vulnerabilityPage = nullptr;
+    TopologyPage *m_topologyPage = nullptr;
     BandwidthPage     *m_bandwidthPage     = nullptr;
 
     // Custom UI Components

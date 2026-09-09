@@ -11,6 +11,7 @@
         <file>resources/static.svg</file>
         <file>resources/forensics.svg</file>
         <file>resources/subnet.svg</file>
+        <file>resources/topology.svg</file>
         <file>resources/merger.svg</file>
         <file>resources/reference.svg</file>
         <file>resources/search.svg</file>

@@ -14,6 +14,11 @@
 
 namespace gui {
 
+enum class LayoutMode {
+    Radial,
+    Hierarchical
+};
+
 // A single device (or the gateway hub) rendered on the topology canvas.
 // Owns its circle, icon, and label as child items so they move together.
 class TopologyNodeItem : public QObject, public QGraphicsEllipseItem {
@@ -52,9 +57,12 @@ public:
 private slots:
     void onDevicesUpdated(const QList<core::Device> &devices);
     void onRouterInfoReady(const core::RouterInfo &info);
+    void onDhcpStatusUpdate(bool running);
     void onZoomIn();
     void onZoomOut();
     void onResetView();
+    void onLayoutBtnClicked();
+    void onBandwidthUpdated(const QList<core::DeviceBandwidth> &devices);
 
 private:
     void setupUi();
@@ -62,6 +70,10 @@ private:
     void relayout();
     QPixmap iconForDeviceType(const QString &deviceType, const QColor &color);
     QColor colorForStatus(const QString &status);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
     core::NetworkManager *m_nm;
 
@@ -73,10 +85,21 @@ private:
 
     QLabel *m_statNodes;
     QLabel *m_statOnline;
+    QLabel *m_statOffline;
     QLabel *m_statBlocked;
     QLabel *m_footerLabel;
+    QPushButton *m_layoutBtn;
 
     QString m_gatewayLabel = "Gateway";
+    bool m_dhcpRunning = false;
+    LayoutMode m_layoutMode = LayoutMode::Radial;
+    
+    // For animations
+    struct AnimDot {
+        QGraphicsEllipseItem *item;
+        QPropertyAnimation *anim;
+    };
+    QList<AnimDot> m_activeAnims;
 };
 
 } // namespace gui

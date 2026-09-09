@@ -6,4 +6,4 @@ echo "Press Ctrl+C to stop."
 
 # Watches all relevant source files for changes. If a change happens, 
 # it quickly switches to the mybuild directory, compiles via make, and restarts!
-find . \( -name "*.cpp" -o -name "*.h" -o -name "*.svg" -o -name "*.qrc" \) | entr -r sh -c 'echo "Rebuilding..." && cd /home/falcon/LAN/mybuild && cmake /home/falcon/LAN/lan-monitor -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) && echo "Rebuild complete! Launching app..." && sudo ./LANMonitor'
+find . \( -name "*.cpp" -o -name "*.h" -o -name "*.svg" -o -name "*.qrc" \) | entr -r sh -c 'echo "Rebuilding..." && cd /home/falcon/LAN/lan-monitor/build2 && cmake /home/falcon/LAN/lan-monitor -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) && echo "Rebuild complete! Launching app..." && sudo ./LANMonitor'

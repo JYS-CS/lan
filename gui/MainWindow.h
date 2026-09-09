@@ -8,6 +8,10 @@
 #include <QThread>
 #include <QTimer>
 #include <QStackedWidget>
+#include <QEvent>
+#include <QMenu>
+#include <QCursor>
+#include <QPoint>
 #include "DeviceTable.h"
 #include "DeviceMonitorPage.h"
 #include "../core/NetworkManager.h"
@@ -31,6 +35,53 @@ namespace gui {
 }
 
 namespace gui {
+
+class HoverMenuFilter : public QObject {
+    Q_OBJECT
+public:
+    HoverMenuFilter(QWidget *button, QMenu *menu) : QObject(button), m_button(button), m_menu(menu) {
+        m_checkTimer = new QTimer(this);
+        m_checkTimer->setInterval(50);
+        connect(m_checkTimer, &QTimer::timeout, this, &HoverMenuFilter::checkHover);
+        m_button->installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (watched == m_button) {
+            if (event->type() == QEvent::Enter) {
+                if (m_menu && !m_menu->isVisible()) {
+                    m_menu->popup(m_button->mapToGlobal(m_button->rect().bottomLeft()));
+                }
+                m_checkTimer->start();
+                return false;
+            } else if (event->type() == QEvent::Leave) {
+                // Don't stop timer, let it check if we should hide
+                return false;
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+private slots:
+    void checkHover() {
+        if (!m_menu || !m_menu->isVisible()) {
+            m_checkTimer->stop();
+            return;
+        }
+        
+        QPoint globalPos = QCursor::pos();
+        bool overButton = m_button->rect().contains(m_button->mapFromGlobal(globalPos));
+        bool overMenu = m_menu->rect().contains(m_menu->mapFromGlobal(globalPos));
+        
+        if (!overButton && !overMenu) {
+            m_menu->hide();
+            m_checkTimer->stop();
+        }
+    }
+private:
+    QWidget *m_button;
+    QMenu *m_menu;
+    QTimer *m_checkTimer;
+};
 
 class MainWindow : public QMainWindow {
     Q_OBJECT

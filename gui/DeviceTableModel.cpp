@@ -105,6 +105,10 @@ QVariant DeviceTableModel::data(const QModelIndex &index, int role) const {
         return dev.status().toLower().contains("self");
     }
     
+    if (role == IsGatewayRole) {
+        return dev.status().toLower().contains("gateway");
+    }
+    
     if (role == MaxBwRole) {
         return m_maxBw;
     }

@@ -46,17 +46,51 @@ bool DatabaseManager::setupSchema() {
     QSqlQuery q(m_db);
 
     // ── Core tables (original schema) ────────────────────────────────────
-    if (!q.exec("CREATE TABLE IF NOT EXISTS devices ("
-                "mac TEXT PRIMARY KEY, "
-                "last_ip TEXT, "
-                "hostname TEXT, "
-                "vendor TEXT, "
-                "alias TEXT, "
-                "status TEXT DEFAULT 'Offline', "
-                "is_known INTEGER DEFAULT 0, "
-                "last_seen TEXT)")) {
-        qDebug() << "DatabaseManager: Schema error (devices):" << q.lastError().text();
-        return false;
+    // ── Core tables (original schema) ────────────────────────────────────
+    if (q.exec("PRAGMA table_info(devices)")) {
+        bool hasNetworkId = false;
+        while (q.next()) {
+            if (q.value(1).toString() == "network_id") {
+                hasNetworkId = true;
+                break;
+            }
+        }
+        if (!hasNetworkId) {
+            q.exec("CREATE TABLE devices_new ("
+                   "network_id TEXT, "
+                   "mac TEXT, "
+                   "last_ip TEXT, "
+                   "hostname TEXT, "
+                   "vendor TEXT, "
+                   "alias TEXT, "
+                   "status TEXT DEFAULT 'Offline', "
+                   "is_known INTEGER DEFAULT 0, "
+                   "last_seen TEXT, "
+                   "device_type TEXT DEFAULT '', "
+                   "latency_ms INTEGER DEFAULT 9999, "
+                   "PRIMARY KEY (network_id, mac))");
+            q.exec("INSERT INTO devices_new (network_id, mac, last_ip, hostname, vendor, alias, status, is_known, last_seen, device_type, latency_ms) "
+                   "SELECT '', mac, last_ip, hostname, vendor, alias, status, is_known, last_seen, device_type, latency_ms FROM devices");
+            q.exec("DROP TABLE devices");
+            q.exec("ALTER TABLE devices_new RENAME TO devices");
+        }
+    } else {
+        if (!q.exec("CREATE TABLE IF NOT EXISTS devices ("
+                    "network_id TEXT, "
+                    "mac TEXT, "
+                    "last_ip TEXT, "
+                    "hostname TEXT, "
+                    "vendor TEXT, "
+                    "alias TEXT, "
+                    "status TEXT DEFAULT 'Offline', "
+                    "is_known INTEGER DEFAULT 0, "
+                    "last_seen TEXT, "
+                    "device_type TEXT DEFAULT '', "
+                    "latency_ms INTEGER DEFAULT 9999, "
+                    "PRIMARY KEY (network_id, mac))")) {
+            qDebug() << "DatabaseManager: Schema error (devices):" << q.lastError().text();
+            return false;
+        }
     }
 
     if (!q.exec("CREATE TABLE IF NOT EXISTS events ("
@@ -208,13 +242,11 @@ bool DatabaseManager::setupSchema() {
 
 // ── Device persistence (unchanged) ───────────────────────────────────────────
 void DatabaseManager::saveDevice(const Device &d) {
-    if (d.mac().isEmpty()) return;
-
     QSqlQuery q(m_db);
-    q.prepare("INSERT OR REPLACE INTO devices "
-              "(mac, last_ip, hostname, vendor, alias, status, is_known, last_seen, device_type, latency_ms) "
-              "VALUES (:mac, :ip, :host, :vendor, :alias, :status, :known, :seen, :dtype, :lms)");
-    q.bindValue(":mac",    d.mac());
+    q.prepare("INSERT OR REPLACE INTO devices (network_id, mac, last_ip, hostname, vendor, alias, status, is_known, last_seen, device_type, latency_ms) "
+              "VALUES (:nid, :mac, :ip, :host, :vendor, :alias, :status, :known, :seen, :dt, :lms)");
+    q.bindValue(":nid", d.networkId());
+    q.bindValue(":mac", d.mac());
     q.bindValue(":ip",     d.ip());
     q.bindValue(":host",   d.hostname());
     q.bindValue(":vendor", d.vendor());
@@ -222,18 +254,18 @@ void DatabaseManager::saveDevice(const Device &d) {
     q.bindValue(":status", d.status());
     q.bindValue(":known",  d.isKnown() ? 1 : 0);
     q.bindValue(":seen",   d.lastSeen().toString(Qt::ISODate));
-    q.bindValue(":dtype",  d.deviceType());
+    q.bindValue(":dt",     d.deviceType());
     q.bindValue(":lms",    d.latencyMs());
 
     if (!q.exec())
         qDebug() << "DatabaseManager: Save error (device):" << q.lastError().text();
 }
 
-void DatabaseManager::removeDevice(const QString &ip) {
-    if (ip.isEmpty()) return;
+void DatabaseManager::removeDevice(const QString &networkId, const QString &mac) {
     QSqlQuery q(m_db);
-    q.prepare("DELETE FROM devices WHERE last_ip = :ip");
-    q.bindValue(":ip", ip);
+    q.prepare("DELETE FROM devices WHERE network_id = :nid AND mac = :mac");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":mac", mac);
     if (!q.exec())
         qDebug() << "DatabaseManager: Remove error (device):" << q.lastError().text();
 }
@@ -249,6 +281,7 @@ QList<Device> DatabaseManager::getAllDevices() {
     QSqlQuery q("SELECT * FROM devices", m_db);
     while (q.next()) {
         Device d;
+        d.setNetworkId(q.value("network_id").toString());
         d.setMac(q.value("mac").toString());
         d.setIp(q.value("last_ip").toString());
         d.setHostname(q.value("hostname").toString());
@@ -272,11 +305,13 @@ QList<Device> DatabaseManager::getAllDevices() {
     return list;
 }
 
-void DatabaseManager::updateAlias(const QString &mac, const QString &alias) {
+void DatabaseManager::updateAlias(const QString &networkId, const QString &mac, const QString &alias) {
+    if (mac.isEmpty()) return;
     QSqlQuery q(m_db);
-    q.prepare("UPDATE devices SET alias = :alias WHERE mac = :mac");
-    q.bindValue(":alias", alias);
-    q.bindValue(":mac",   mac);
+    q.prepare("UPDATE devices SET alias = :al WHERE network_id = :nid AND mac = :mac");
+    q.bindValue(":al", alias);
+    q.bindValue(":nid", networkId);
+    q.bindValue(":mac", mac);
     q.exec();
 }
 

@@ -43,9 +43,9 @@ public:
 
     // ── Device persistence ────────────────────────────────────────────────
     void saveDevice(const Device &d);
-    void removeDevice(const QString &ip);
+    void removeDevice(const QString &networkId, const QString &mac);
     QList<Device> getAllDevices();
-    void updateAlias(const QString &mac, const QString &alias);
+    void updateAlias(const QString &networkId, const QString &mac, const QString &alias);
 
     // ── Event persistence ─────────────────────────────────────────────────
     void saveEvent(const core::NetworkEvent &e);

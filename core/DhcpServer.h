@@ -11,7 +11,7 @@
 #include <netinet/in.h>
 #include <net/ethernet.h>
 
-#include "DHCPManager.h" // For DHCPServerConfig and DHCPLease
+#include "DHCPManager.h" // For DHCPServerConfig and DHCPLeaonce a device is auto blocked the app crashes without any info it just quitsse
 
 namespace core {
 
@@ -83,6 +83,7 @@ public:
     void kickClient(const QString &mac,
                     const QString &ip);           // Expire + send unicast DHCP NAK → forces client to release IP now
     void setBlockedMACs(const QSet<QString> &blocked);
+    bool isBlocked(const QString &mac);
 
 signals:
     void leaseUpdated(const core::DHCPLease &lease);

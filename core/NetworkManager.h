@@ -201,6 +201,8 @@ private:
     // Device type classification (DHCP vendor class + MAC OUI + hostname heuristics)
     static QString inferDeviceType(const QString &vendor, const QString &hostname,
                                    const QString &status, const QString &dhcpVendorClass = QString());
+                                   
+    static QString inferVendor(const QString &macVendor, const QString &hostname, const QString &dhcpVendorClass = QString());
 
     QString getMyMac(const QString &iface);
     QString getGatewayIP();
@@ -218,6 +220,7 @@ private:
     QThread *m_networkThread = nullptr;
     QMutex m_resultsMutex;
     QMap<QString, Device> m_allDevices;
+    QHash<QString, Device> m_dbDeviceCache; // Cached historical DB devices keyed by MAC
 
     void applyBlockEnforcement(const QString &mac, const QString &reason);
     void enforceStrictModeBlock(const QString &mac);

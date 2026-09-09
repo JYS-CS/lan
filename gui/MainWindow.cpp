@@ -234,12 +234,12 @@ void MainWindow::setupUI() {
 
 void MainWindow::setupToolBar() {
     m_customToolBar = new QWidget(this);
-    m_customToolBar->setFixedHeight(42);
+    m_customToolBar->setFixedHeight(64);
     m_customToolBar->setObjectName("Toolbar");
     
     QHBoxLayout *hLayout = new QHBoxLayout(m_customToolBar);
-    hLayout->setContentsMargins(15, 0, 15, 0);
-    hLayout->setSpacing(12);
+    hLayout->setContentsMargins(16, 0, 16, 0);
+    hLayout->setSpacing(8);
 
     auto createDivider = [this]() {
         QFrame *f = new QFrame(this);
@@ -256,10 +256,7 @@ void MainWindow::setupToolBar() {
     logoIcon->setStyleSheet(
         "background-color: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #4f7fff, stop:0.5 #4f7fff, "
         "stop:0.5 #ff9142, stop:1 #ff9142); border-radius: 5px;");
-    QLabel *logoText = new QLabel("LAN Monitor", this);
-    logoText->setStyleSheet("font-size: 13px; font-weight: bold; color: #e8eaf0;");
     hLayout->addWidget(logoIcon);
-    hLayout->addWidget(logoText);
     hLayout->addSpacing(8);
     hLayout->addWidget(createDivider());
 
@@ -267,10 +264,11 @@ void MainWindow::setupToolBar() {
     m_navGroup->setExclusive(true);
 
     auto createNavBtn = [this](QString text, QString iconPath, int pageIndex) {
-        QPushButton *btn = new QPushButton(Theme::tintedIcon(iconPath, 16, Theme::AccentBlue), text, this);
+        QPushButton *btn = new QPushButton(Theme::tintedIcon(iconPath, 80, Theme::AccentBlue), "", this);
         btn->setCheckable(true);
-        btn->setFixedHeight(26);
+        btn->setFixedSize(60, 60);
         btn->setFlat(true);
+        btn->setToolTip(text);
         m_navGroup->addButton(btn, pageIndex);
         connect(btn, &QPushButton::clicked, this, [this, pageIndex]() {
             m_centralStacked->setCurrentIndex(pageIndex);
@@ -279,31 +277,49 @@ void MainWindow::setupToolBar() {
     };
 
     auto createGroupDropdown = [this](QString text, QString iconPath, QList<std::tuple<QString, QString, int>> items) {
+        QWidget *container = new QWidget(this);
+        QHBoxLayout *containerLayout = new QHBoxLayout(container);
+        containerLayout->setContentsMargins(0, 0, 0, 0);
+        containerLayout->setSpacing(0);
+        
         QToolButton *btn = new QToolButton(this);
-        btn->setText(text);
-        btn->setIcon(Theme::tintedIcon(iconPath, 16, Theme::AccentBlue));
-        btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        btn->setIcon(Theme::tintedIcon(iconPath, 24, Theme::AccentBlue));
+        btn->setToolButtonStyle(Qt::ToolButtonIconOnly);
         btn->setPopupMode(QToolButton::InstantPopup);
-        btn->setFixedHeight(26);
-        btn->setStyleSheet("QToolButton { border-radius: 6px; font-size: 12px; padding: 0 10px; color: #7c8299; font-weight: 500; } "
-                           "QToolButton:hover { background: rgba(255,255,255,0.05); color: #e8eaf0; } "
+        btn->setFixedSize(56, 56);
+        btn->setToolTip(text);
+        btn->setStyleSheet("QToolButton { border-radius: 8px; border: none; background: transparent; } "
+                           "QToolButton:hover { background: rgba(79,127,255,0.12); } "
                            "QToolButton::menu-indicator { width: 0px; }");
         
+        // Add small dropdown arrow indicator
+        QLabel *arrow = new QLabel("▼", this);
+        arrow->setStyleSheet("color: #4f7fff; font-size: 8px; padding: 0; margin: 0;");
+        arrow->setFixedSize(10, 10);
+        arrow->setAlignment(Qt::AlignCenter);
+        
+        containerLayout->addWidget(btn);
+        containerLayout->addWidget(arrow);
+        
         QMenu *m = new QMenu(btn);
-        m->setStyleSheet("QMenu { background: #0d1117; border: 1px solid rgba(79,127,255,0.25); border-radius: 6px; padding: 4px; } "
-                         "QMenu::item { padding: 6px 20px 6px 30px; border-radius: 4px; color: #7c8299; } "
-                         "QMenu::item:selected { background: rgba(79,127,255,0.15); color: #4f7fff; }");
+        m->setStyleSheet("QMenu { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #0d1117, stop:1 #080c10); border: 1px solid rgba(79,127,255,0.35); border-radius: 10px; padding: 8px; } "
+                         "QMenu::item { padding: 10px 28px 10px 36px; border-radius: 8px; color: #8b949e; font-size: 13px; } "
+                         "QMenu::item:selected { background: rgba(79,127,255,0.2); color: #4f7fff; border: 1px solid rgba(79,127,255,0.3); }");
         
         for (const auto &item : items) {
             // DHCP-related entries get the orange half of the duotone, matching the startup wizard
             bool isDhcp = std::get<0>(item).contains("DHCP", Qt::CaseInsensitive);
-            QAction *act = m->addAction(Theme::tintedIcon(std::get<1>(item), 15, isDhcp ? Theme::AccentOrange : Theme::AccentBlue), std::get<0>(item));
+            QAction *act = m->addAction(Theme::tintedIcon(std::get<1>(item), 32, isDhcp ? Theme::AccentOrange : Theme::AccentBlue), std::get<0>(item));
             connect(act, &QAction::triggered, this, [this, item]() {
                 m_centralStacked->setCurrentIndex(std::get<2>(item));
             });
         }
         btn->setMenu(m);
-        return btn;
+        
+        // Show menu on hover
+        btn->installEventFilter(new HoverMenuFilter(btn, m));
+        
+        return container;
     };
 
     // 2. MONITOR Dropdown (Devices | Traffic | Bandwidth)
@@ -312,29 +328,24 @@ void MainWindow::setupToolBar() {
         {"Traffic",    ":/resources/traffic.svg",  2},
         {"Bandwidth",  ":/resources/traffic.svg",  9}
     }));
-    hLayout->addWidget(createDivider());
 
     // 3. TOOLS Dropdown
     hLayout->addWidget(createGroupDropdown("Tools", ":/resources/tools.svg", {
-        {"DHCP", ":/resources/router.svg", 3}, 
+        {"DHCP", ":/resources/router.svg", 3},
         {"IP Calculator", ":/resources/calculator.svg", 4}
     }));
-    hLayout->addWidget(createDivider());
 
     // 4. ROUTER button
     hLayout->addWidget(createNavBtn("Router", ":/resources/router.svg", 5));
-    hLayout->addWidget(createDivider());
 
     // 4b. BLOCKED DEVICES button
     hLayout->addWidget(createNavBtn("Blocked", ":/resources/ban.svg", 7));
-    hLayout->addWidget(createDivider());
 
     // 4c. VULNERABILITY SCANNER button
     hLayout->addWidget(createNavBtn("Vulnerabilities", ":/resources/warning.svg", 8));
-    hLayout->addWidget(createDivider());
 
     // 4d. TOPOLOGY button
-    hLayout->addWidget(createNavBtn("Topology", ":/resources/subnet.svg", 10));
+    hLayout->addWidget(createNavBtn("Topology", ":/resources/topology.svg", 10));
     hLayout->addWidget(createDivider());
 
     // 4e. DNS ACTIVITY button
@@ -364,14 +375,15 @@ void MainWindow::setupToolBar() {
 
     // Apply Global Toolbar Style
     m_customToolBar->setStyleSheet(
-        "QWidget#Toolbar { background-color: #0d1117; border-bottom: 1px solid rgba(79,127,255,0.15); }"
-        "QPushButton { color: #8b949e; border-radius: 6px; font-size: 12px; padding: 0 9px; }"
-        "QPushButton:hover { background: rgba(79,127,255,0.1); color: #4f7fff; }"
-        "QPushButton:checked { background: rgba(79,127,255,0.08); border: 1px solid rgba(79,127,255,0.35); "
-        "   border-bottom: 2px solid #ff9142; color: #4f7fff; font-weight: bold; }"
+        "QWidget#Toolbar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #0d1117, stop:1 #080c10); border-bottom: 2px solid rgba(79,127,255,0.15); }"
+        "QPushButton { border-radius: 10px; border: 1px solid transparent; background: transparent; }"
+        "QPushButton:hover { background: rgba(79,127,255,0.12); border: 1px solid rgba(79,127,255,0.25); }"
+        "QPushButton:checked { background: rgba(79,127,255,0.18); border: 1px solid rgba(79,127,255,0.4); }"
+        "QToolButton { border-radius: 10px; border: 1px solid transparent; background: transparent; }"
+        "QToolButton:hover { background: rgba(79,127,255,0.12); border: 1px solid rgba(79,127,255,0.25); }"
         "QPushButton#ScanBtn { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #4f7fff, stop:1 #6d5cff); "
-        "   color: white; font-size: 11px; font-weight: bold; padding: 0 12px; border-radius: 4px; }"
-        "QPushButton#ScanBtn:hover { background: #3d6ef0; }"
+        "   color: white; font-size: 11px; font-weight: bold; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(79,127,255,0.3); }"
+        "QPushButton#ScanBtn:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #3d6ef0, stop:1 #5a4ce8); }"
     );
 
     setMenuWidget(m_customToolBar);

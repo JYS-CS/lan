@@ -34,7 +34,8 @@ public:
         MaxBwRole      = Qt::UserRole + 4,
         UpHistoryRole  = Qt::UserRole + 5,
         DownHistoryRole= Qt::UserRole + 6,
-        MacRole        = Qt::UserRole + 7
+        MacRole        = Qt::UserRole + 7,
+        IsGatewayRole  = Qt::UserRole + 8
     };
 
     explicit DeviceTableModel(QObject *parent = nullptr);

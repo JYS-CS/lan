@@ -17,6 +17,10 @@ public:
     QString mac() const { return m_mac; }
     void setMac(const QString &mac) { m_mac = mac; }
 
+    // Network ID (Interface / Subnet Context)
+    QString networkId() const { return m_networkId; }
+    void setNetworkId(const QString &netId) { m_networkId = netId; }
+
     // Hostname
     QString hostname() const { return m_hostname; }
     void setHostname(const QString &hostname) { m_hostname = hostname; }
@@ -83,6 +87,7 @@ public:
 private:
     QString m_ip;
     QString m_mac;
+    QString m_networkId; // Added Network Context
     QString m_hostname    = "Unknown";
     QString m_upBandwidth = "0 KB/s";
     QString m_downBandwidth = "0 KB/s";

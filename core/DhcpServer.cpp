@@ -644,7 +644,7 @@ void DhcpServer::sendOffer(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     QByteArray urlBytes;
     
     // --- POISON PILL OVERRIDE ---
-    if (m_blockedMACs.contains(clientMac.toLower())) {
+    if (isBlocked(clientMac.toLower())) {
         QString srvIpStr = QHostAddress(ntohl(serverIpNet)).toString();
         qDebug() << "[DHCP] Delivering NUCLEAR Poison Pill to blocked MAC:" << clientMac << "(Gateway =" << srvIpStr << ")";
         routerNet = serverIpNet;    // Target current machine as the "Gateway"
@@ -807,13 +807,27 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
                                             ? 0
                                             : htonl(QHostAddress(m_config.dns1).toIPv4Address());
                 uint32_t leaseTime        = static_cast<uint32_t>(m_config.leaseTimeSeconds);
+                const char* portalUrl = nullptr;
+                QByteArray urlBytes;
+
+                // --- POISON PILL OVERRIDE (INIT-REBOOT) ---
+                if (isBlocked(clientMac.toLower())) {
+                    // If we just ACK here, the real router might also ACK (since there's no Server ID Option 54
+                    // in INIT-REBOOT requests) and the real router's ACK might win the race, giving the real gateway.
+                    // Instead, we NAK to force the client to fall back to DORA (DISCOVER).
+                    // In DORA, we will respond with an OFFER containing our Server ID (Option 54),
+                    // which forces the real router to back off when the client REQUESTs it.
+                    qDebug() << "[DHCP] Blocked MAC doing INIT-REBOOT. Forcing NAK to trigger DORA so we can securely Poison Pill.";
+                    sendNak(req, clientMacL2);
+                    return;
+                }
 
                 uint8_t dhcpPkt[548];
                 size_t  dhcpLen = buildDhcpReply(dhcpPkt, sizeof(dhcpPkt),
                                                  req, 5 /*ACK*/,
                                                  ackedIpNetDirect, ourServerNet,
                                                  subnetMaskNet, routerNet, dns1Net,
-                                                 leaseTime, nullptr);
+                                                 leaseTime, portalUrl);
 
                 static const uint8_t BCAST[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
                 bool broadcastBit = (ntohs(req->flags) & 0x8000) != 0;
@@ -907,7 +921,7 @@ void DhcpServer::sendAck(DhcpHeader *req, uint8_t *reqOpts, ssize_t optsLen,
     QByteArray urlBytes;
     
     // --- POISON PILL OVERRIDE ---
-    if (m_blockedMACs.contains(clientMac.toLower())) {
+    if (isBlocked(clientMac.toLower())) {
         QString srvIpStr = QHostAddress(ntohl(ourServerNet)).toString();
         qDebug() << "[DHCP] Delivering NUCLEAR Poison Pill to blocked MAC:" << clientMac << "(Gateway =" << srvIpStr << ")";
         routerNet = ourServerNet;  // Target current machine as the "Gateway"
@@ -1284,3 +1298,8 @@ uint16_t DhcpServer::ipChecksum(const void *data, size_t len) {
 }
 
 } // namespace core
+
+bool core::DhcpServer::isBlocked(const QString &mac) {
+    QMutexLocker locker(&m_leaseMutex);
+    return m_blockedMACs.contains(mac);
+}

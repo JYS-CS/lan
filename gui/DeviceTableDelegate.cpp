@@ -300,9 +300,10 @@ void DeviceTableDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
             break;
         }
         case DeviceTableModel::ColBlock: {
-            // Never show the block button for the host device
+            // Never show the block button for the host device or gateway
             bool isHost = index.data(DeviceTableModel::IsHostRole).toBool();
-            if (isHost) break;
+            bool isGateway = index.data(DeviceTableModel::IsGatewayRole).toBool();
+            if (isHost || isGateway) break;
 
             // Only show the button when this machine is acting as the gateway
             if (!m_gatewayModeActive) {

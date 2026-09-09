@@ -335,6 +335,7 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
     // that may have been stored before the hostname filter was added.
     auto saved = DatabaseManager::instance().getAllDevices();
     for (auto d : saved) {
+        if (d.networkId() != getActiveInterface()) continue;
         if (isManufacturerStyleHostname(d.hostname(), d.mac())) {
             qDebug() << "[NetworkManager] Sanitizing stale DB hostname for"
                      << d.ip() << ":" << d.hostname();
@@ -398,12 +399,10 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         }
         d.setHostname(hostname.isEmpty() ? "Unknown" : hostname);
         QString resolvedVendor = getMacVendor(lease.mac);
-        d.setVendor(resolvedVendor);
+        d.setVendor(inferVendor(resolvedVendor, hostname, lease.vendorClass));
         d.setStatus("Online");
-        // Classify device type from DHCP data (hostname + vendor OUI)
-        // Note: DHCP option 60 vendor class is not yet in DHCPLease struct;
-        // use the hostname + vendor OUI signals which are always available.
-        QString devType = inferDeviceType(resolvedVendor, hostname, "Online");
+        // Classify device type from DHCP data (hostname + vendor OUI + vendor class)
+        QString devType = inferDeviceType(resolvedVendor, hostname, "Online", lease.vendorClass);
         d.setDeviceType(devType);
         addDiscoveredDevice(d, /*fromDhcp=*/true);
         m_firewallManager->addAllowedLease(lease.ip, lease.mac);
@@ -585,6 +584,35 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
 // ============================================================
 // Priority order: explicit DHCP vendor class > status badge >
 // vendor OUI > hostname keywords > fallback to Unknown.
+QString NetworkManager::inferVendor(const QString &macVendor, const QString &hostname, const QString &dhcpVendorClass) {
+    if (macVendor != "Unknown Vendor" && !macVendor.isEmpty()) {
+        return macVendor;
+    }
+    
+    // Attempt to infer from DHCP Vendor Class
+    QString vc = dhcpVendorClass.toLower();
+    if (vc.contains("apple") || vc.contains("iphone") || vc.contains("ipad")) return "Apple Inc.";
+    if (vc.contains("android")) return "Google / Android";
+    if (vc.contains("msft") || vc.contains("windows")) return "Microsoft Corporation";
+    if (vc.contains("samsung")) return "Samsung Electronics";
+    if (vc.contains("roku")) return "Roku, Inc.";
+    if (vc.contains("amazon") || vc.contains("fire-tv") || vc.contains("firetv") || vc.contains("kindle")) return "Amazon Technologies Inc.";
+    
+    // Attempt to infer from hostname
+    QString h = hostname.toLower();
+    if (h.contains("apple") || h.contains("iphone") || h.contains("ipad") || h.contains("macbook") || h.contains("imac")) return "Apple Inc.";
+    if (h.contains("android")) return "Google / Android";
+    if (h.contains("samsung") || h.contains("galaxy")) return "Samsung Electronics";
+    if (h.contains("amazon") || h.contains("kindle") || h.contains("fire-tv") || h.contains("firetv") || h.contains("echo") || h.contains("alexa")) return "Amazon Technologies Inc.";
+    if (h.contains("roku")) return "Roku, Inc.";
+    if (h.contains("nintendo") || h.contains("switch")) return "Nintendo Co., Ltd.";
+    if (h.contains("playstation") || h.contains("ps4") || h.contains("ps5")) return "Sony Interactive Entertainment";
+    if (h.contains("xbox")) return "Microsoft Corporation";
+    if (h.contains("chromecast")) return "Google LLC";
+    
+    return "Unknown Vendor";
+}
+
 QString NetworkManager::inferDeviceType(const QString &vendor,
                                         const QString &hostname,
                                         const QString &status,
@@ -719,6 +747,7 @@ void NetworkManager::activate() {
     // Sync persisted blacklist/whitelist
     QList<Device> historicalDevices = DatabaseManager::instance().getAllDevices();
     for (const Device &d : historicalDevices) {
+        if (d.networkId() != iface) continue;
         QString lMac = d.mac().toLower();
         if (DatabaseManager::instance().isBlacklisted(m_gatewayMac, lMac)) {
             m_firewallManager->blockMAC(lMac);
@@ -727,6 +756,9 @@ void NetworkManager::activate() {
         if (DatabaseManager::instance().isWhitelisted(m_gatewayMac, lMac)) {
             m_firewallManager->addWhitelistedMAC(lMac);
             m_dhcpManager->addWhitelistedMAC(lMac);
+        }
+        if (!d.mac().isEmpty()) {
+            m_dbDeviceCache[d.mac()] = d;
         }
     }
 
@@ -820,6 +852,14 @@ void NetworkManager::stopDHCPServer()                                  {
     m_dhcpManager->stopServer();
 }
 
+QList<Device> NetworkManager::getDevices() const {
+    // Need to cast away const to lock the mutex, or make mutex mutable. 
+    // Mutex in NetworkManager is just QMutex, not mutable? Let's check. 
+    // Usually it's better to just use const_cast if it's not mutable.
+    QMutexLocker lk(const_cast<QMutex*>(&m_resultsMutex));
+    return m_allDevices.values();
+}
+
 void NetworkManager::setGatewayMac(const QString &mac) {
     if (m_gatewayMac == mac) return;
     
@@ -837,6 +877,7 @@ void NetworkManager::startScanning(const QString &interfaceName) {
     // Sync persisted blacklist/whitelist with DHCP and firewall
     QList<Device> historicalDevices = DatabaseManager::instance().getAllDevices();
     for (const Device &d : historicalDevices) {
+        if (d.networkId() != interfaceName) continue;
         QString lMac = d.mac().toLower();
         if (DatabaseManager::instance().isBlacklisted(m_gatewayMac, lMac)) {
             m_firewallManager->blockMAC(lMac);
@@ -1134,7 +1175,8 @@ void NetworkManager::onTrafficUpdated(const QMap<QString, TrafficStats> &stats) 
 }
 
 void NetworkManager::updateDeviceAlias(const QString &mac, const QString &alias) {
-    DatabaseManager::instance().updateAlias(mac, alias);
+    QString netId = m_interfaceName.isEmpty() ? getActiveInterface() : m_interfaceName;
+    DatabaseManager::instance().updateAlias(netId, mac, alias);
     
     // Update live state
     for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
@@ -1202,6 +1244,7 @@ void NetworkManager::onDeviceSeen(const QHostAddress &ip, const QString &mac) {
     d.setIp(ip.toString());
     d.setMac(mac);
     d.setVendor(getMacVendor(mac));
+    d.setNetworkId(m_interfaceName.isEmpty() ? getActiveInterface() : m_interfaceName);
     d.setLastSeen(QDateTime::currentDateTime());
     mergeArpEntry(ip.toString(), mac);
     emit deviceSeen(ip, mac);
@@ -1293,7 +1336,7 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
             // Do not delete the host or gateway if they share a MAC (e.g. VMs, aliases, Proxy ARP)
             if (oldIp != hostIp && oldIp != m_gatewayIp && ip != hostIp && ip != m_gatewayIp) {
                 existingDev = m_allDevices[oldIp];
-                DatabaseManager::instance().removeDevice(oldIp);
+                DatabaseManager::instance().removeDevice(existingDev.networkId(), existingDev.mac());
                 m_allDevices.remove(oldIp);
                 moved = true;
             }
@@ -1308,9 +1351,14 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
         }
         d.setLastSeen(QDateTime::currentDateTime());
         if (d.status().toLower() == "offline") {
-            bool blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
+            bool isHost = (mac == m_myMac || ip == QHostAddress(m_myIpAddr).toString());
+            bool isGateway = (ip == m_gatewayIp || mac == m_gatewayMac);
+            bool blocked = false;
+            if (!isHost && !isGateway) {
+                blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
+                enforceStrictModeBlock(mac);
+            }
             d.setStatus(blocked ? "Blocked" : "Online");
-            enforceStrictModeBlock(mac);
         }
         
         // Capture gateway MAC for identification
@@ -1319,19 +1367,42 @@ void NetworkManager::mergeArpEntry(const QString &ip, const QString &mac, const 
                 setGatewayMac(mac);
             }
         }
+        if (!mac.isEmpty() && mac != "00:00:00:00:00:00") {
+            m_dbDeviceCache[mac] = d;
+        }
         DatabaseManager::instance().saveDevice(d);
     } else {
         if (!mac.isEmpty() && mac != "00:00:00:00:00:00") {
             Device d = moved ? existingDev : Device();
             d.setIp(ip);
             d.setMac(mac);
-            if (!moved || d.vendor().isEmpty()) {
-                d.setVendor(getMacVendor(mac));
+            
+            // Restore from DB cache if available
+            if (m_dbDeviceCache.contains(mac)) {
+                const Device &cached = m_dbDeviceCache[mac];
+                if (d.hostname().isEmpty() || d.hostname() == "Unknown")
+                    d.setHostname(cached.hostname());
+                if (d.vendor().isEmpty() || d.vendor() == "Unknown Vendor")
+                    d.setVendor(cached.vendor());
+                if (d.deviceType().isEmpty() || d.deviceType() == "Unknown")
+                    d.setDeviceType(cached.deviceType());
+                if (d.alias().isEmpty())
+                    d.setAlias(cached.alias());
             }
-            bool blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
+
+            if (d.vendor().isEmpty() || d.vendor() == "Unknown Vendor") {
+                d.setVendor(inferVendor(getMacVendor(mac), d.hostname()));
+            }
+            bool isHost = (mac == m_myMac || ip == QHostAddress(m_myIpAddr).toString());
+            bool isGateway = (ip == m_gatewayIp || mac == m_gatewayMac);
+            bool blocked = false;
+            if (!isHost && !isGateway) {
+                blocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, mac) || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, mac));
+                enforceStrictModeBlock(mac);
+            }
             d.setStatus(blocked ? "Blocked" : "Online");
-            enforceStrictModeBlock(mac);
             m_allDevices.insert(ip, d);
+            m_dbDeviceCache[mac] = d;
             DatabaseManager::instance().saveDevice(d);
             if (!moved) {
                 logEvent(NetworkEvent::Discovery, QString("New device discovered: %1").arg(ip), ip);
@@ -1468,20 +1539,30 @@ void NetworkManager::refreshLatencies() {
 }
 
 void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
+    Device workingDev = dev;
+    if (workingDev.networkId().isEmpty()) {
+        workingDev.setNetworkId(m_interfaceName.isEmpty() ? getActiveInterface() : m_interfaceName);
+    }
+    
     QMutexLocker lk(&m_resultsMutex);
-    bool isBlocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, dev.mac())
-                  || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, dev.mac()));
-    QString properStatus = isBlocked ? "Blocked" : (fromDhcp ? "Online" : dev.status());
-    enforceStrictModeBlock(dev.mac());
+    bool isHost = (workingDev.mac() == m_myMac || workingDev.ip() == QHostAddress(m_myIpAddr).toString());
+    bool isGateway = (workingDev.ip() == m_gatewayIp || workingDev.mac() == m_gatewayMac);
+    bool isBlocked = false;
+    if (!isHost && !isGateway) {
+        isBlocked = DatabaseManager::instance().isBlacklisted(m_gatewayMac, workingDev.mac())
+                  || (m_strictMode && !DatabaseManager::instance().isWhitelisted(m_gatewayMac, workingDev.mac()));
+        enforceStrictModeBlock(workingDev.mac());
+    }
+    QString properStatus = isBlocked ? "Blocked" : (fromDhcp ? "Online" : workingDev.status());
 
     Device existingDev;
     bool moved = false;
 
     // Clean up ghosts: if this MAC exists on a different IP, delete the old IP entry
-    if (!dev.mac().isEmpty() && dev.mac() != "00:00:00:00:00:00") {
+    if (!workingDev.mac().isEmpty() && workingDev.mac() != "00:00:00:00:00:00") {
         QString oldIp;
         for (auto it = m_allDevices.begin(); it != m_allDevices.end(); ++it) {
-            if (it.value().mac() == dev.mac() && it.key() != dev.ip()) {
+            if (it.value().mac() == workingDev.mac() && it.key() != workingDev.ip()) {
                 oldIp = it.key();
                 break;
             }
@@ -1489,28 +1570,32 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
         if (!oldIp.isEmpty()) {
             QString hostIp = QHostAddress(m_myIpAddr).toString();
             // Do not delete the host or gateway if they share a MAC (e.g. VMs, aliases, Proxy ARP)
-            if (oldIp != hostIp && oldIp != m_gatewayIp && dev.ip() != hostIp && dev.ip() != m_gatewayIp) {
+            if (oldIp != hostIp && oldIp != m_gatewayIp && workingDev.ip() != hostIp && workingDev.ip() != m_gatewayIp) {
                 existingDev = m_allDevices[oldIp];
-                DatabaseManager::instance().removeDevice(oldIp);
+                DatabaseManager::instance().removeDevice(existingDev.networkId(), existingDev.mac());
                 m_allDevices.remove(oldIp);
                 moved = true;
             }
         }
     }
 
-    if (m_allDevices.contains(dev.ip())) {
-        Device &d = m_allDevices[dev.ip()];
-        bool isHost = (d.mac() == m_myMac || dev.ip() == QHostAddress(m_myIpAddr).toString());
+    if (m_allDevices.contains(workingDev.ip())) {
+        Device &d = m_allDevices[workingDev.ip()];
+        bool isHost = (d.mac() == m_myMac || workingDev.ip() == QHostAddress(m_myIpAddr).toString());
         
         // DHCP is authoritative: always update MAC and hostname when a lease is issued.
         // For ARP/passive discoveries, only update if we have better data.
         if (fromDhcp) {
-            if (!dev.mac().isEmpty())     d.setMac(dev.mac());
-            if (!dev.hostname().isEmpty() && !isHost) d.setHostname(dev.hostname()); // Protect Hostname
-            if (!dev.vendor().isEmpty() && !isHost)  d.setVendor(dev.vendor());
+            if (!workingDev.mac().isEmpty())     d.setMac(workingDev.mac());
+            if (!workingDev.hostname().isEmpty() && !isHost) d.setHostname(workingDev.hostname()); // Protect Hostname
+            if (!workingDev.vendor().isEmpty() && !isHost)  d.setVendor(workingDev.vendor());
+            if (!workingDev.deviceType().isEmpty() && workingDev.deviceType() != "Unknown") d.setDeviceType(workingDev.deviceType());
         } else {
-            if (!dev.hostname().isEmpty() && dev.hostname() != "Unknown" && !isHost)
-                d.setHostname(dev.hostname());
+            if (!workingDev.hostname().isEmpty() && workingDev.hostname() != "Unknown" && !isHost) {
+                if (d.hostname().isEmpty() || d.hostname() == "Unknown") {
+                    d.setHostname(workingDev.hostname());
+                }
+            }
         }
         
         // Ensure Host retains its special visual tag.
@@ -1526,6 +1611,12 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
             d.setStatus(properStatus);
         }
 
+        // Re-infer vendor if not yet classified
+        if (d.vendor().isEmpty() || d.vendor() == "Unknown Vendor") {
+            QString inferredV = inferVendor(d.vendor(), d.hostname());
+            if (inferredV != "Unknown Vendor") d.setVendor(inferredV);
+        }
+
         // Re-infer device type if not yet classified
         if (d.deviceType().isEmpty() || d.deviceType() == "Unknown") {
             QString inferred = inferDeviceType(d.vendor(), d.hostname(), d.status());
@@ -1533,17 +1624,36 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
                 d.setDeviceType(inferred);
         }
 
+        d.setNetworkId(workingDev.networkId());
         d.setLastSeen(QDateTime::currentDateTime());
+        if (!d.mac().isEmpty()) m_dbDeviceCache[d.mac()] = d;
         DatabaseManager::instance().saveDevice(d);
     } else {
-        Device newDev = moved ? existingDev : dev;
-        newDev.setIp(dev.ip());
-        newDev.setMac(dev.mac());
+        Device newDev = moved ? existingDev : workingDev;
+        newDev.setIp(workingDev.ip());
+        newDev.setMac(workingDev.mac());
+        newDev.setNetworkId(workingDev.networkId());
+        
+        // Restore from DB cache if available
+        if (!newDev.mac().isEmpty() && m_dbDeviceCache.contains(newDev.mac())) {
+            const Device &cached = m_dbDeviceCache[newDev.mac()];
+            if (newDev.hostname().isEmpty() || newDev.hostname() == "Unknown")
+                newDev.setHostname(cached.hostname());
+            if (newDev.vendor().isEmpty() || newDev.vendor() == "Unknown Vendor")
+                newDev.setVendor(cached.vendor());
+            if (newDev.deviceType().isEmpty() || newDev.deviceType() == "Unknown")
+                newDev.setDeviceType(cached.deviceType());
+            if (newDev.alias().isEmpty())
+                newDev.setAlias(cached.alias());
+        }
+
         // For moves or fresh devices, bring over new info if it exists
         if (!dev.hostname().isEmpty() && dev.hostname() != "Unknown")
             newDev.setHostname(dev.hostname());
-        if (!dev.vendor().isEmpty())
+        if (!dev.vendor().isEmpty() && dev.vendor() != "Unknown Vendor")
             newDev.setVendor(dev.vendor());
+        if (!dev.deviceType().isEmpty() && dev.deviceType() != "Unknown")
+            newDev.setDeviceType(dev.deviceType());
             
         if (!properStatus.isEmpty()) newDev.setStatus(properStatus);
         // Infer device type for new devices
@@ -1558,6 +1668,7 @@ void NetworkManager::addDiscoveredDevice(const Device &dev, bool fromDhcp) {
         }
         newDev.setLastSeen(QDateTime::currentDateTime());
         m_allDevices.insert(newDev.ip(), newDev);
+        if (!newDev.mac().isEmpty()) m_dbDeviceCache[newDev.mac()] = newDev;
         DatabaseManager::instance().saveDevice(newDev);
         
         if (!moved) {
@@ -1987,6 +2098,9 @@ void NetworkManager::runScan() {
     Device self;
     self.setIp(myAddress.toString());
     self.setMac(m_myMac);
+    self.setNetworkId(iface);
+    self.setStatus("Online (Self)");
+    self.setLastSeen(QDateTime::currentDateTime());
     // If we already have a resolved vendor in DB, keep it. Otherwise placeholder.
     {
         QMutexLocker lk(&m_resultsMutex);
@@ -2003,7 +2117,6 @@ void NetworkManager::runScan() {
         }
     }
     self.setHostname(QHostInfo::localHostName());
-    self.setStatus("Online (Self)");
     addDiscoveredDevice(self);
     m_confirmedIps.insert(myAddress.toString());
 
@@ -2020,8 +2133,10 @@ void NetworkManager::runScan() {
         Device gw;
         gw.setIp(m_gatewayIp);
         gw.setMac(m_gatewayMac.isEmpty() ? "Checking..." : m_gatewayMac);
+        gw.setNetworkId(iface);
         gw.setVendor("Router / Gateway");
-        gw.setHostname(leases.value(m_gatewayIp, "router"));
+        gw.setLastSeen(QDateTime::currentDateTime());
+        gw.setHostname(leases.value(m_gatewayIp, "Unknown"));
         gw.setStatus("Online (Gateway)");
         addDiscoveredDevice(gw);
         m_confirmedIps.insert(m_gatewayIp);
@@ -2093,6 +2208,7 @@ void NetworkManager::clearDevices() {
     Device self;
     self.setIp(QHostAddress(m_myIpAddr).toString());
     self.setMac(m_myMac);
+    self.setNetworkId(m_interfaceName.isEmpty() ? getActiveInterface() : m_interfaceName);
     self.setHostname(QHostInfo::localHostName());
     self.setStatus("Online (Self)");
     self.setVendor("This Device (Host)");
@@ -2145,15 +2261,32 @@ QHostAddress NetworkManager::getInterfaceNetmask(const QString &iface) {
 }
 
 QString NetworkManager::getActiveInterface() {
+    std::ifstream f("/proc/net/route");
+    std::string l;
+    QString defaultIface;
+    while (std::getline(f, l)) {
+        std::stringstream ss(l);
+        std::string ifc, dst, gw;
+        ss >> ifc >> dst >> gw;
+        if (dst == "00000000" && !gw.empty()) {
+            defaultIface = QString::fromStdString(ifc);
+            break;
+        }
+    }
+
+    QString firstActive;
     for (const auto &i : QNetworkInterface::allInterfaces()) {
         if (i.flags().testFlag(QNetworkInterface::IsUp) &&
             !i.flags().testFlag(QNetworkInterface::IsLoopBack)) {
-            for (const auto &e : i.addressEntries())
-                if (e.ip().protocol() == QAbstractSocket::IPv4Protocol)
-                    return i.name();
+            for (const auto &e : i.addressEntries()) {
+                if (e.ip().protocol() == QAbstractSocket::IPv4Protocol) {
+                    if (firstActive.isEmpty()) firstActive = i.name();
+                    if (i.name() == defaultIface) return i.name();
+                }
+            }
         }
     }
-    return "";
+    return firstActive;
 }
 
 QMap<QString, QString> NetworkManager::readDHCPLeases() {

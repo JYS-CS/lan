@@ -14,6 +14,7 @@ public:
     bool showDownloadColumn() const { return m_showDownload; }
     bool autoClearHistoricalDevices() const { return m_autoClear; }
     bool blockNewDevicesByDefault() const { return m_blockNewDevices; }
+    bool dnsVisibilityEnabled() const { return m_dnsVisibility; }
 
 public slots:
     void setShowSparklines(bool v);
@@ -21,6 +22,7 @@ public slots:
     void setShowDownloadColumn(bool v);
     void setAutoClearHistoricalDevices(bool v);
     void setBlockNewDevicesByDefault(bool v);
+    void setDnsVisibilityEnabled(bool v);
 
 signals:
     void settingsChanged();
@@ -32,6 +34,7 @@ private:
     bool m_showDownload   = true;
     bool m_autoClear      = false;
     bool m_blockNewDevices = false;
+    bool m_dnsVisibility = false;
     QSettings m_qs;
 };
 

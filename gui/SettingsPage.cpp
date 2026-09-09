@@ -142,7 +142,51 @@ SettingsPage::SettingsPage(core::NetworkManager *nm, QWidget *parent) : QWidget(
     });
     cv->addWidget(refreshThreatBtn, 0, Qt::AlignLeft);
 
+    ToggleSwitch *swDnsVisibility = nullptr;
+    cv->addWidget(makeRow(
+        "DNS Visibility & Filtering",
+        "Make this machine the DNS resolver for every device on the network — see every domain "
+        "each device looks up, and automatically block known malware/phishing/ad domains before "
+        "a connection is even attempted. Requires the DHCP Server running (either mode).",
+        &swDnsVisibility
+    ));
+    if (m_nm) {
+        swDnsVisibility->setChecked(cfg->dnsVisibilityEnabled());
+        connect(swDnsVisibility, &ToggleSwitch::toggled, this, [this, cfg](bool on) {
+            cfg->setDnsVisibilityEnabled(on);
+            QMetaObject::invokeMethod(m_nm, [this, on]() { m_nm->setDnsVisibilityEnabled(on); }, Qt::QueuedConnection);
+        });
+        connect(m_nm, &core::NetworkManager::dnsVisibilityStatusChanged, this, &SettingsPage::refreshDnsStatus);
+        connect(m_nm, &core::NetworkManager::dnsBlocklistRefreshFailed, this, [this](const QString &err) {
+            m_dnsStatusLabel->setText("Blocklist update failed: " + err);
+            m_dnsStatusLabel->setStyleSheet("color: #ff5c5c; font-size: 11px; font-family: 'Inter';");
+        });
+    } else {
+        swDnsVisibility->setEnabled(false);
+    }
+
+    m_dnsStatusLabel = new QLabel(this);
+    m_dnsStatusLabel->setStyleSheet("color: #7c8798; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
+    cv->addWidget(m_dnsStatusLabel);
+    refreshDnsStatus();
+
     cv->addStretch();
+}
+
+void SettingsPage::refreshDnsStatus() {
+    if (!m_nm || !m_dnsStatusLabel) return;
+    if (!m_nm->isDnsVisibilityEnabled()) {
+        m_dnsStatusLabel->setText("Disabled");
+        m_dnsStatusLabel->setStyleSheet("color: #4d5666; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
+        return;
+    }
+    QString runState = m_nm->isDnsProxyRunning() ? "running" : "enabled, waiting for DHCP Server to start";
+    int domains = m_nm->dnsBlocklistEntryCount();
+    QString text = domains > 0
+        ? QString("%1 — %2 domains blocked, last updated %3").arg(runState).arg(domains).arg(m_nm->dnsBlocklistLastUpdated().toString("hh:mm:ss"))
+        : QString("%1 — fetching domain blocklist…").arg(runState);
+    m_dnsStatusLabel->setText(text);
+    m_dnsStatusLabel->setStyleSheet("color: #34e4a0; font-size: 11px; font-family: 'Inter'; padding: 0 0 8px 0;");
 }
 
 void SettingsPage::refreshThreatStatus() {

@@ -25,6 +25,9 @@
 #include "RouterDetector.h"
 #include "VulnerabilityScanner.h"
 #include "DeviceIdentityEngine.h"
+#include "DnsBlocklistManager.h"
+#include "DnsProxyServer.h"
+#include "DatabaseManager.h"
 #include "ThreatIntelManager.h"
 #include "BandwidthEngine.h"
 
@@ -142,6 +145,9 @@ signals:
     void blockActionFailed(const QString &reason);
     void blockedDevicesReady(const QVariantList &entries);
     void strictModeChanged(bool enabled);
+    void dnsVisibilityStatusChanged();
+    void dnsBlocklistRefreshFailed(const QString &error);
+    void dnsQueryLogUpdated(const core::DnsLogEntry &entry);
     void threatBlocklistStatusChanged();
     void threatBlocklistRefreshFailed(const QString &error);
 
@@ -162,6 +168,13 @@ public slots:
     void triggerVulnScanAll();
     void setStrictMode(bool enabled);
     bool isStrictModeEnabled() const { return m_strictMode; }
+    void setDnsVisibilityEnabled(bool enabled);
+    bool isDnsVisibilityEnabled() const { return m_dnsVisibilityEnabled; }
+    bool isDnsProxyRunning() const;
+    int dnsBlocklistEntryCount() const;
+    QDateTime dnsBlocklistLastUpdated() const;
+    QList<core::DnsLogEntry> getRecentDnsQueries(int limit = 500, const QString &clientIpFilter = QString());
+    int countDnsQueries(bool blockedOnly = false);
     void setThreatBlocklistEnabled(bool enabled);
     bool isThreatBlocklistEnabled() const;
     void refreshThreatBlocklistNow();
@@ -208,6 +221,9 @@ private:
 
     void applyBlockEnforcement(const QString &mac, const QString &reason);
     void enforceStrictModeBlock(const QString &mac);
+    void startDnsProxy();
+    void stopDnsProxy();
+    static int prefixLengthFromMask(quint32 mask);
 
     // Sub-components
     PacketCapture *m_packetCapturer = nullptr;
@@ -223,6 +239,13 @@ private:
     QThread              *m_vulnThread    = nullptr;
 
     DeviceIdentityEngine *m_identityEngine = nullptr;
+
+    DnsProxyServer      *m_dnsProxy    = nullptr;
+    QThread             *m_dnsThread   = nullptr;
+    DnsBlocklistManager *m_dnsBlocklist = nullptr;
+    bool m_dnsVisibilityEnabled = false;
+    QString m_dnsUpstream1 = "1.1.1.1";
+    QString m_dnsUpstream2 = "8.8.8.8";
     ThreatIntelManager   *m_threatIntel    = nullptr;
 
     BandwidthEngine      *m_bwEngine      = nullptr;

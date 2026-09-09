@@ -529,6 +529,52 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
     connect(m_threatIntel, &ThreatIntelManager::statusChanged, this, &NetworkManager::threatBlocklistStatusChanged);
     connect(m_threatIntel, &ThreatIntelManager::refreshFailed, this, &NetworkManager::threatBlocklistRefreshFailed);
 
+    // DNS Visibility & Filtering — the resolver itself needs its own
+    // thread (async sockets, but potentially high query volume shouldn't
+    // compete with everything else NetworkManager does); the blocklist
+    // fetcher has no blocking I/O, same placement as ThreatIntelManager.
+    m_dnsProxy  = new DnsProxyServer();
+    m_dnsThread = new QThread(this);
+    m_dnsProxy->moveToThread(m_dnsThread);
+    connect(m_dnsThread, &QThread::finished, m_dnsProxy, &QObject::deleteLater);
+    connect(m_dnsProxy, &DnsProxyServer::queryObserved, this,
+            [this](const QString &clientIp, const QString &domain, const QString &qtype, bool blocked, bool cached) {
+        if (m_gatewayMac.isEmpty()) return;
+        core::DnsLogEntry entry;
+        entry.clientIp = clientIp;
+        entry.domain   = domain;
+        entry.qtype    = qtype;
+        entry.blocked  = blocked;
+        entry.cached   = cached;
+        entry.timestamp = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+        auto devIt = m_allDevices.constFind(clientIp);
+        entry.clientMac = (devIt != m_allDevices.constEnd()) ? devIt.value().mac() : QString();
+
+        DatabaseManager::instance().logDnsQuery(m_gatewayMac, entry);
+        emit dnsQueryLogUpdated(entry);
+    }, Qt::QueuedConnection);
+    m_dnsThread->start();
+
+    m_dnsBlocklist = new DnsBlocklistManager(this);
+    connect(m_dnsBlocklist, &DnsBlocklistManager::blocklistUpdated, this, [this](const QStringList &domains) {
+        if (!m_dnsProxy) return;
+        QMetaObject::invokeMethod(m_dnsProxy, [this, domains]() {
+            m_dnsProxy->setBlockedDomains(domains);
+        }, Qt::QueuedConnection);
+        emit dnsVisibilityStatusChanged();
+    });
+    connect(m_dnsBlocklist, &DnsBlocklistManager::refreshFailed, this, &NetworkManager::dnsBlocklistRefreshFailed);
+
+    // Start/stop the DNS proxy in lockstep with the DHCP server itself —
+    // it only means anything while clients are actually being told to
+    // use it (DHCP option 6 override happens in DHCPPage when this
+    // feature is enabled).
+    connect(this, &NetworkManager::dhcpStatusUpdate, this, [this](bool running) {
+        if (running && m_dnsVisibilityEnabled) startDnsProxy();
+        else if (!running) stopDnsProxy();
+    });
+
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
     // This prevents any scan/firewall activity while the wizard is open.
@@ -758,6 +804,10 @@ NetworkManager::~NetworkManager() {
         m_vulnThread->quit();
         m_vulnThread->wait(3000);
     }
+    if (m_dnsThread) {
+        m_dnsThread->quit();
+        m_dnsThread->wait(3000);
+    }
 }
 
 // ============================================================
@@ -869,6 +919,63 @@ void NetworkManager::setStrictMode(bool enabled) {
     logEvent(core::NetworkEvent::Info,
         enabled ? "Default-deny policy enabled — new devices will be auto-blocked until whitelisted"
                 : "Default-deny policy disabled");
+}
+
+int NetworkManager::prefixLengthFromMask(quint32 mask) {
+    int count = 0;
+    while (mask) { count += (mask & 1); mask >>= 1; }
+    return count;
+}
+
+void NetworkManager::startDnsProxy() {
+    if (!m_dnsProxy || m_myIpAddr == 0) return;
+    QString listenIp = QHostAddress(m_myIpAddr).toString();
+    QString cidr = QString("%1/%2").arg(QHostAddress(m_networkAddr).toString())
+                                    .arg(prefixLengthFromMask(m_netmaskAddr));
+    QString up1 = m_dnsUpstream1, up2 = m_dnsUpstream2;
+    QMetaObject::invokeMethod(m_dnsProxy, [this, listenIp, cidr, up1, up2]() {
+        m_dnsProxy->start(listenIp, cidr, up1, up2);
+    }, Qt::QueuedConnection);
+    logEvent(core::NetworkEvent::Info, "DNS visibility resolver starting on " + listenIp);
+}
+
+void NetworkManager::stopDnsProxy() {
+    if (!m_dnsProxy) return;
+    QMetaObject::invokeMethod(m_dnsProxy, "stop", Qt::QueuedConnection);
+}
+
+void NetworkManager::setDnsVisibilityEnabled(bool enabled) {
+    if (m_dnsVisibilityEnabled == enabled) return;
+    m_dnsVisibilityEnabled = enabled;
+
+    if (m_dnsBlocklist) m_dnsBlocklist->setEnabled(enabled);
+
+    if (enabled && m_dhcpManager && m_dhcpManager->isServerRunning()) {
+        startDnsProxy();
+    } else if (!enabled) {
+        stopDnsProxy();
+    }
+    emit dnsVisibilityStatusChanged();
+}
+
+bool NetworkManager::isDnsProxyRunning() const {
+    return m_dnsProxy && m_dnsProxy->isRunning();
+}
+
+int NetworkManager::dnsBlocklistEntryCount() const {
+    return m_dnsBlocklist ? m_dnsBlocklist->entryCount() : 0;
+}
+
+QDateTime NetworkManager::dnsBlocklistLastUpdated() const {
+    return m_dnsBlocklist ? m_dnsBlocklist->lastUpdated() : QDateTime();
+}
+
+QList<core::DnsLogEntry> NetworkManager::getRecentDnsQueries(int limit, const QString &clientIpFilter) {
+    return DatabaseManager::instance().getRecentDnsQueries(m_gatewayMac, limit, clientIpFilter);
+}
+
+int NetworkManager::countDnsQueries(bool blockedOnly) {
+    return DatabaseManager::instance().countDnsQueries(m_gatewayMac, blockedOnly);
 }
 
 // Called wherever a device is discovered/re-classified as "should be

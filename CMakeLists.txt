@@ -68,6 +68,10 @@ add_executable(LANMonitor
     core/DeviceIdentityEngine.cpp
     core/ThreatIntelManager.h
     core/ThreatIntelManager.cpp
+    core/DnsBlocklistManager.h
+    core/DnsBlocklistManager.cpp
+    core/DnsProxyServer.h
+    core/DnsProxyServer.cpp
     core/VulnerabilityScanner.h
     core/VulnerabilityScanner.cpp
     resources.qrc
@@ -94,6 +98,8 @@ add_executable(LANMonitor
     gui/VulnerabilityPage.cpp
     gui/TopologyPage.h
     gui/TopologyPage.cpp
+    gui/DnsActivityPage.h
+    gui/DnsActivityPage.cpp
     gui/BandwidthPage.h
     gui/BandwidthPage.cpp
     core/BandwidthEngine.h

@@ -16,6 +16,7 @@ public:
 
 private slots:
     void refreshThreatStatus();
+    void refreshDnsStatus();
 
 private:
     QWidget* makeSection(const QString &title);
@@ -23,6 +24,7 @@ private:
 
     core::NetworkManager *m_nm = nullptr;
     QLabel *m_threatStatusLabel = nullptr;
+    QLabel *m_dnsStatusLabel = nullptr;
 };
 
 } // namespace gui

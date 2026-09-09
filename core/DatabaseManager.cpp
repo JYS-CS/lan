@@ -115,6 +115,22 @@ bool DatabaseManager::setupSchema() {
            "last_seen TEXT, "
            "PRIMARY KEY (network_id, mac))");
 
+    // DNS query visibility log (see DnsProxyServer). Indexed by network_id +
+    // timestamp since the activity page always filters/sorts by recency,
+    // and by client_ip for per-device lookups.
+    q.exec("CREATE TABLE IF NOT EXISTS dns_query_log ("
+           "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+           "network_id TEXT, "
+           "client_ip TEXT, "
+           "client_mac TEXT, "
+           "domain TEXT, "
+           "qtype TEXT, "
+           "blocked INTEGER, "
+           "cached INTEGER, "
+           "timestamp TEXT)");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_dns_log_network_time ON dns_query_log (network_id, timestamp)");
+    q.exec("CREATE INDEX IF NOT EXISTS idx_dns_log_client ON dns_query_log (network_id, client_ip)");
+
     if (q.exec("PRAGMA table_info(whitelist)")) {
         bool hasNetworkId = false;
         while (q.next()) {
@@ -455,6 +471,72 @@ void DatabaseManager::linkMacToIdentity(const QString &networkId, const QString 
     q2.bindValue(":nid", networkId);
     q2.bindValue(":id", identityId);
     q2.exec();
+}
+
+// ── DNS query log DAO ──────────────────────────────────────────────────────────
+void DatabaseManager::logDnsQuery(const QString &networkId, const DnsLogEntry &entry) {
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO dns_query_log (network_id, client_ip, client_mac, domain, qtype, blocked, cached, timestamp) "
+              "VALUES (:nid, :ip, :mac, :domain, :qtype, :blocked, :cached, :ts)");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":ip", entry.clientIp);
+    q.bindValue(":mac", entry.clientMac.toLower());
+    q.bindValue(":domain", entry.domain.toLower());
+    q.bindValue(":qtype", entry.qtype);
+    q.bindValue(":blocked", entry.blocked ? 1 : 0);
+    q.bindValue(":cached", entry.cached ? 1 : 0);
+    q.bindValue(":ts", entry.timestamp.isEmpty() ? QDateTime::currentDateTime().toString(Qt::ISODate) : entry.timestamp);
+    q.exec();
+}
+
+QList<DnsLogEntry> DatabaseManager::getRecentDnsQueries(const QString &networkId, int limit, const QString &clientIpFilter) {
+    QList<DnsLogEntry> out;
+    QSqlQuery q(m_db);
+    if (clientIpFilter.isEmpty()) {
+        q.prepare("SELECT client_ip, client_mac, domain, qtype, blocked, cached, timestamp FROM dns_query_log "
+                  "WHERE network_id = :nid ORDER BY id DESC LIMIT :lim");
+    } else {
+        q.prepare("SELECT client_ip, client_mac, domain, qtype, blocked, cached, timestamp FROM dns_query_log "
+                  "WHERE network_id = :nid AND client_ip = :ip ORDER BY id DESC LIMIT :lim");
+        q.bindValue(":ip", clientIpFilter);
+    }
+    q.bindValue(":nid", networkId);
+    q.bindValue(":lim", limit);
+    if (q.exec()) {
+        while (q.next()) {
+            DnsLogEntry e;
+            e.clientIp  = q.value(0).toString();
+            e.clientMac = q.value(1).toString();
+            e.domain    = q.value(2).toString();
+            e.qtype     = q.value(3).toString();
+            e.blocked   = q.value(4).toInt() != 0;
+            e.cached    = q.value(5).toInt() != 0;
+            e.timestamp = q.value(6).toString();
+            out.append(e);
+        }
+    }
+    return out;
+}
+
+int DatabaseManager::countDnsQueries(const QString &networkId, bool blockedOnly) {
+    QSqlQuery q(m_db);
+    if (blockedOnly) {
+        q.prepare("SELECT COUNT(*) FROM dns_query_log WHERE network_id = :nid AND blocked = 1");
+    } else {
+        q.prepare("SELECT COUNT(*) FROM dns_query_log WHERE network_id = :nid");
+    }
+    q.bindValue(":nid", networkId);
+    if (q.exec() && q.next()) return q.value(0).toInt();
+    return 0;
+}
+
+void DatabaseManager::pruneDnsLog(const QString &networkId, int maxRows) {
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM dns_query_log WHERE network_id = :nid AND id NOT IN "
+              "(SELECT id FROM dns_query_log WHERE network_id = :nid ORDER BY id DESC LIMIT :max)");
+    q.bindValue(":nid", networkId);
+    q.bindValue(":max", maxRows);
+    q.exec();
 }
 
 // ── Bandwidth history DAO ─────────────────────────────────────────────────────

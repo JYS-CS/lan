@@ -18,6 +18,18 @@ struct BlacklistEntry {
     QString blockedAt; // ISO 8601
 };
 
+// A single DNS query, as recorded by DnsProxyServer for browsing-activity
+// visibility.
+struct DnsLogEntry {
+    QString clientIp;
+    QString clientMac;
+    QString domain;
+    QString qtype;
+    bool blocked = false;
+    bool cached  = false;
+    QString timestamp; // ISO 8601
+};
+
 class DatabaseManager : public QObject {
     Q_OBJECT
 
@@ -58,6 +70,13 @@ public:
     void createIdentity(const QString &networkId, const QString &identityId, const QString &fingerprint,
                          const QString &hostname, const QString &clientId);
     void linkMacToIdentity(const QString &networkId, const QString &identityId, const QString &mac);
+
+    // DNS query log (see DnsProxyServer)
+    void logDnsQuery(const QString &networkId, const DnsLogEntry &entry);
+    QList<DnsLogEntry> getRecentDnsQueries(const QString &networkId, int limit = 500, const QString &clientIpFilter = QString());
+    int countDnsQueries(const QString &networkId, bool blockedOnly = false);
+    // Keeps the table from growing unbounded — call periodically.
+    void pruneDnsLog(const QString &networkId, int maxRows = 20000);
 
     // ── Bandwidth history ─────────────────────────────────────────────────
     // Insert one raw 5-second sample.

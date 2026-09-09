@@ -2,6 +2,7 @@
 #include "StaticLeaseDialog.h"
 #include "StartupModePage.h"
 #include "Theme.h"
+#include "AppSettings.h"
 #include <QHeaderView>
 #include <QMessageBox>
 #include <QNetworkInterface>
@@ -401,6 +402,17 @@ void DHCPPage::startDhcpWithCurrentConfig() {
     QStringList dnsList = dnsText.split(",", Qt::SkipEmptyParts);
     if (dnsList.size() > 0) config.dns1 = dnsList[0].trimmed();
     if (dnsList.size() > 1) config.dns2 = dnsList[1].trimmed();
+
+    // DNS Visibility & Filtering: when enabled, clients get told to use
+    // *this machine* as their primary DNS server instead of whatever was
+    // configured above — every query then passes through our own local
+    // resolver first (see DnsProxyServer). The user's configured DNS
+    // stays as the secondary/fallback, so DNS still works even if this
+    // feature or the proxy itself isn't running for some reason.
+    if (gui::AppSettings::instance()->dnsVisibilityEnabled()) {
+        config.dns2 = config.dns1.isEmpty() ? config.dns2 : config.dns1;
+        config.dns1 = config.hostIp;
+    }
 
     QString leaseStr = m_leaseEdit->text().toLower();
     int seconds = 86400; // Default to 24 hours if parsing completely fails

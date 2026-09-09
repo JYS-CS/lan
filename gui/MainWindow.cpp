@@ -20,6 +20,7 @@
 #include "BlockedDevicesPage.h"
 #include "VulnerabilityPage.h"
 #include "TopologyPage.h"
+#include "DnsActivityPage.h"
 #include "AppSettings.h"
 #include "Theme.h"
 #include <QButtonGroup>
@@ -196,6 +197,10 @@ void MainWindow::setupUI() {
     m_topologyPage = new TopologyPage(m_networkManager, this);
     m_centralStacked->addWidget(m_topologyPage);
 
+    // Page 11: DNS Activity Page
+    m_dnsActivityPage = new DnsActivityPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_dnsActivityPage);
+
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
     setCentralWidget(m_centralStacked);
@@ -330,6 +335,10 @@ void MainWindow::setupToolBar() {
 
     // 4d. TOPOLOGY button
     hLayout->addWidget(createNavBtn("Topology", ":/resources/subnet.svg", 10));
+    hLayout->addWidget(createDivider());
+
+    // 4e. DNS ACTIVITY button
+    hLayout->addWidget(createNavBtn("DNS Activity", ":/resources/search.svg", 11));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

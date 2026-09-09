@@ -15,6 +15,7 @@ AppSettings::AppSettings(QObject *parent)
     m_showDownload   = m_qs.value("showDownload",   true).toBool();
     m_autoClear      = m_qs.value("autoClearHistoricalDevices", false).toBool();
     m_blockNewDevices = m_qs.value("blockNewDevicesByDefault", false).toBool();
+    m_dnsVisibility = m_qs.value("dnsVisibilityEnabled", false).toBool();
 }
 
 void AppSettings::setShowSparklines(bool v) {
@@ -49,6 +50,13 @@ void AppSettings::setBlockNewDevicesByDefault(bool v) {
     if (m_blockNewDevices == v) return;
     m_blockNewDevices = v;
     m_qs.setValue("blockNewDevicesByDefault", v);
+    emit settingsChanged();
+}
+
+void AppSettings::setDnsVisibilityEnabled(bool v) {
+    if (m_dnsVisibility == v) return;
+    m_dnsVisibility = v;
+    m_qs.setValue("dnsVisibilityEnabled", v);
     emit settingsChanged();
 }
 

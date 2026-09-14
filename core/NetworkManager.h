@@ -27,6 +27,7 @@
 #include "DeviceIdentityEngine.h"
 #include "DnsBlocklistManager.h"
 #include "DnsProxyServer.h"
+#include "IntelLookupService.h"
 #include "DatabaseManager.h"
 #include "ThreatIntelManager.h"
 #include "BandwidthEngine.h"
@@ -148,6 +149,18 @@ signals:
     void dnsVisibilityStatusChanged();
     void dnsBlocklistRefreshFailed(const QString &error);
     void dnsQueryLogUpdated(const core::DnsLogEntry &entry);
+
+    // IP & Domain Intelligence (relayed from IntelLookupService)
+    void intelStageChanged(const QString &stage);
+    void intelResolvedIps(const QStringList &ips);
+    void intelReverseDnsResult(const QString &hostname);
+    void intelGeoResult(const QString &country, const QString &city, const QString &isp, const QString &asn, const QString &org);
+    void intelGeoLookupFailed(const QString &error);
+    void intelSubdomainsFound(const QStringList &subdomains);
+    void intelPortsFound(const QList<int> &openPorts);
+    void intelThreatStatus(bool malicious);
+    void intelLookupFinished();
+    void intelLookupFailed(const QString &error);
     void threatBlocklistStatusChanged();
     void threatBlocklistRefreshFailed(const QString &error);
 
@@ -166,6 +179,7 @@ public slots:
     void requestBlockedDevices();
     void triggerVulnScan(const QString &ip, const QString &mac = QString(), const QString &hostname = QString());
     void triggerVulnScanAll();
+    void triggerIntelLookup(const QString &target);
     void setStrictMode(bool enabled);
     bool isStrictModeEnabled() const { return m_strictMode; }
     void setDnsVisibilityEnabled(bool enabled);
@@ -249,6 +263,9 @@ private:
     bool m_dnsVisibilityEnabled = false;
     QString m_dnsUpstream1 = "1.1.1.1";
     QString m_dnsUpstream2 = "8.8.8.8";
+
+    IntelLookupService *m_intelLookup = nullptr;
+    QThread             *m_intelThread = nullptr;
     ThreatIntelManager   *m_threatIntel    = nullptr;
 
     BandwidthEngine      *m_bwEngine      = nullptr;

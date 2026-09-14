@@ -24,6 +24,7 @@
 #include "VulnerabilityPage.h"
 #include "TopologyPage.h"
 #include "DnsActivityPage.h"
+#include "IntelLookupPage.h"
 #include "BandwidthPage.h"
 
 namespace gui { 
@@ -120,6 +121,7 @@ private:
     VulnerabilityPage *m_vulnerabilityPage = nullptr;
     TopologyPage *m_topologyPage = nullptr;
     DnsActivityPage *m_dnsActivityPage = nullptr;
+    IntelLookupPage *m_intelLookupPage = nullptr;
     BandwidthPage     *m_bandwidthPage     = nullptr;
 
     // Custom UI Components

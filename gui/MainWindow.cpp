@@ -21,6 +21,7 @@
 #include "VulnerabilityPage.h"
 #include "TopologyPage.h"
 #include "DnsActivityPage.h"
+#include "IntelLookupPage.h"
 #include "AppSettings.h"
 #include "Theme.h"
 #include <QButtonGroup>
@@ -201,6 +202,10 @@ void MainWindow::setupUI() {
     m_dnsActivityPage = new DnsActivityPage(m_networkManager, this);
     m_centralStacked->addWidget(m_dnsActivityPage);
 
+    // Page 12: Intel Lookup Page
+    m_intelLookupPage = new IntelLookupPage(m_networkManager, this);
+    m_centralStacked->addWidget(m_intelLookupPage);
+
     connect(m_centralStacked, &QStackedWidget::currentChanged, this, &MainWindow::animatePageChange);
 
     setCentralWidget(m_centralStacked);
@@ -350,6 +355,10 @@ void MainWindow::setupToolBar() {
 
     // 4e. DNS ACTIVITY button
     hLayout->addWidget(createNavBtn("DNS Activity", ":/resources/search.svg", 11));
+    hLayout->addWidget(createDivider());
+
+    // 4f. INTEL LOOKUP button
+    hLayout->addWidget(createNavBtn("Intel Lookup", ":/resources/reference.svg", 12));
     hLayout->addWidget(createDivider());
 
     // Will select button when mode is chosen, but add one just in case

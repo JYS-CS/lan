@@ -2,6 +2,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QHostAddress>
 
 namespace core {
 
@@ -64,8 +65,31 @@ void ThreatIntelManager::onReplyFinished() {
 
     m_entryCount = entries.size();
     m_lastUpdated = QDateTime::currentDateTime();
+
+    m_ranges.clear();
+    m_ranges.reserve(entries.size());
+    for (const QString &e : entries) {
+        QStringList parts = e.split('/');
+        QHostAddress addr(parts[0]);
+        quint32 base = addr.toIPv4Address();
+        int prefixLen = parts.size() > 1 ? parts[1].toInt() : 32;
+        if (prefixLen < 0 || prefixLen > 32) prefixLen = 32;
+        quint32 mask = prefixLen == 0 ? 0 : (0xFFFFFFFFu << (32 - prefixLen));
+        m_ranges.append({base & mask, mask});
+    }
+
     emit blocklistUpdated(entries);
     emit statusChanged();
+}
+
+bool ThreatIntelManager::isKnownMalicious(const QString &ip) const {
+    QHostAddress addr(ip);
+    quint32 target = addr.toIPv4Address();
+    if (target == 0) return false;
+    for (const auto &r : m_ranges) {
+        if ((target & r.mask) == r.base) return true;
+    }
+    return false;
 }
 
 } // namespace core

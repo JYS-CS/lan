@@ -24,6 +24,10 @@ public:
     bool isEnabled() const { return m_enabled; }
     int entryCount() const { return m_entryCount; }
     QDateTime lastUpdated() const { return m_lastUpdated; }
+    // Checks the in-memory copy of the same list handed to the firewall —
+    // lets other features (like an IP lookup tool) ask "is this address
+    // known-malicious?" without touching nftables.
+    bool isKnownMalicious(const QString &ip) const;
 
 public slots:
     void setEnabled(bool enabled);
@@ -39,11 +43,14 @@ private slots:
     void onReplyFinished();
 
 private:
+    struct IpRange { quint32 base; quint32 mask; };
+
     QNetworkAccessManager *m_nam;
     QTimer *m_refreshTimer;
     bool m_enabled = false;
     int m_entryCount = 0;
     QDateTime m_lastUpdated;
+    QList<IpRange> m_ranges;
 
     static constexpr const char *kBlocklistUrl =
         "https://raw.githubusercontent.com/bitwire-it/ipblocklist/main/outbound.txt";

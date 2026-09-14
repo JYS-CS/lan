@@ -72,6 +72,8 @@ add_executable(LANMonitor
     core/DnsBlocklistManager.cpp
     core/DnsProxyServer.h
     core/DnsProxyServer.cpp
+    core/IntelLookupService.h
+    core/IntelLookupService.cpp
     core/VulnerabilityScanner.h
     core/VulnerabilityScanner.cpp
     resources.qrc
@@ -100,6 +102,8 @@ add_executable(LANMonitor
     gui/TopologyPage.cpp
     gui/DnsActivityPage.h
     gui/DnsActivityPage.cpp
+    gui/IntelLookupPage.h
+    gui/IntelLookupPage.cpp
     gui/BandwidthPage.h
     gui/BandwidthPage.cpp
     core/BandwidthEngine.h

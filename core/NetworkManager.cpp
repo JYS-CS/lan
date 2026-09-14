@@ -574,6 +574,25 @@ NetworkManager::NetworkManager(QObject *parent) : QObject(parent) {
         else if (!running) stopDnsProxy();
     });
 
+    // IP & Domain Intelligence — has blocking calls (reverse DNS via
+    // getnameinfo, TCP port scan), so it gets its own dedicated thread,
+    // same as RouterDetector/VulnerabilityScanner.
+    m_intelLookup = new IntelLookupService(m_threatIntel);
+    m_intelThread = new QThread(this);
+    m_intelLookup->moveToThread(m_intelThread);
+    connect(m_intelThread, &QThread::finished, m_intelLookup, &QObject::deleteLater);
+    connect(m_intelLookup, &IntelLookupService::stageChanged,       this, &NetworkManager::intelStageChanged, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::resolvedIps,        this, &NetworkManager::intelResolvedIps, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::reverseDnsResult,   this, &NetworkManager::intelReverseDnsResult, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::geoResult,          this, &NetworkManager::intelGeoResult, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::geoLookupFailed,    this, &NetworkManager::intelGeoLookupFailed, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::subdomainsFound,    this, &NetworkManager::intelSubdomainsFound, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::portsFound,         this, &NetworkManager::intelPortsFound, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::threatStatus,       this, &NetworkManager::intelThreatStatus, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::lookupFinished,     this, &NetworkManager::intelLookupFinished, Qt::QueuedConnection);
+    connect(m_intelLookup, &IntelLookupService::lookupFailed,       this, &NetworkManager::intelLookupFailed, Qt::QueuedConnection);
+    m_intelThread->start();
+
     // NOTE: PassiveSniffer, FirewallManager init, and cleanup timer are deferred
     // to activate() which is called only after the startup wizard completes.
     // This prevents any scan/firewall activity while the wizard is open.
@@ -839,6 +858,10 @@ NetworkManager::~NetworkManager() {
     if (m_dnsThread) {
         m_dnsThread->quit();
         m_dnsThread->wait(3000);
+    }
+    if (m_intelThread) {
+        m_intelThread->quit();
+        m_intelThread->wait(3000);
     }
 }
 
@@ -1108,6 +1131,11 @@ void NetworkManager::triggerVulnScanAll() {
     }
     QMetaObject::invokeMethod(m_vulnScanner, "scanMany", Qt::QueuedConnection,
                                Q_ARG(QList<QStringList>, devices));
+}
+
+void NetworkManager::triggerIntelLookup(const QString &target) {
+    if (!m_intelLookup) return;
+    QMetaObject::invokeMethod(m_intelLookup, "lookup", Qt::QueuedConnection, Q_ARG(QString, target));
 }
 
 void NetworkManager::setThreatBlocklistEnabled(bool enabled) {
